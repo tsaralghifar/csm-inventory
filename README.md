@@ -1,6 +1,13 @@
 # CSM Inventory System
 ### Sistem Manajemen Inventori Sparepart Alat Berat
-**PT. Cipta Sarana Makmur**
+CSM Inventory System adalah aplikasi berbasis web yang mengintegrasikan:
+
+Manajemen Stok
+Sistem Akuntansi (Jurnal, Kas Besar & Kecil)
+Payroll Karyawan
+Supplier & Invoice Management
+
+Sistem ini dirancang untuk membantu operasional bisnis secara terpusat dalam satu platform.
 
 ---
 
@@ -73,18 +80,21 @@ DB_PASSWORD=your_password
 
 ## 📁 Struktur Modul
 
-- **Dashboard** - KPI stok, alert minus, aktivitas terbaru
-- **Master Barang** - CRUD sparepart dengan part number
-- **Master Gudang** - HO + tambah site baru
-- **Stok HO** - Stok masuk, keluar, opname di gudang HO
-- **Stok Site** - View stok per site operasional
-- **Material Request** - Alur permintaan barang HO→Site
-- **Histori Mutasi** - Tracking semua pergerakan barang
-- **BBM/Solar** - Log pengeluaran bahan bakar per unit
-- **APD Karyawan** - Distribusi alat pelindung diri
-- **Laporan** - Export Excel/CSV laporan operasional
-- **Manajemen User** - CRUD user dengan multi-role
-- **Role & Akses** - Superuser atur permission per role
+  📦 Inventory
+    Manajemen stok barang
+    Tracking permintaan material
+    Import saldo awal
+  💰 Accounting
+    Jurnal umum
+    Kas besar & kas kecil
+    Laporan keuangan (Cash Flow, Beban, dll)
+  👨‍💼 Payroll
+    Penggajian karyawan
+    Komponen gaji
+    Pinjaman karyawan
+  🧾 Supplier
+    Manajemen supplier
+    Invoice & pembayaran
 
 ---
 
