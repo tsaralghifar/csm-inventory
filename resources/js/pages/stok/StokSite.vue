@@ -1,0 +1,792 @@
+<template>
+  <div>
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div>
+        <h5 class="fw-bold mb-0" style="color:#1a3a5c;">Stok Gudang Site</h5>
+        <small class="text-muted">Pantau persediaan barang di setiap site operasional</small>
+      </div>
+      <div class="d-flex gap-2" v-if="selectedSite">
+        <button v-if="can('create-stock-in')" class="btn btn-success btn-sm" @click="openStockIn()">
+          <i class="bi bi-plus-circle me-1"></i>Stok Masuk
+        </button>
+        <button v-if="can('create-stock-out')" class="btn btn-warning btn-sm" @click="openStockOut()">
+          <i class="bi bi-dash-circle me-1"></i>Stok Keluar
+        </button>
+      </div>
+    </div>
+
+    <!-- Site Selector -->
+    <div class="row g-3 mb-4" v-if="sites.length">
+      <div v-for="site in sites" :key="site.id" class="col-6 col-md-4 col-xl-3">
+        <div class="csm-card cursor-pointer border-2" :class="selectedSite?.id === site.id ? 'border-primary' : ''" @click="selectSite(site)" style="cursor:pointer;">
+          <div class="csm-card-body text-center py-3">
+            <div class="mb-2"><span class="badge bg-secondary">{{ site.code }}</span></div>
+            <i class="bi bi-geo-alt-fill text-primary fs-4 mb-2 d-block"></i>
+            <div class="fw-semibold small">{{ site.name }}</div>
+            <div class="text-muted" style="font-size:0.72rem;">{{ site.location || '' }}</div>
+            <div class="mt-2">
+              <span class="badge bg-light text-dark border small">{{ site.item_stocks_count }} jenis barang</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stock Table for Selected Site -->
+    <div v-if="selectedSite">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <h6 class="mb-0 fw-bold"><i class="bi bi-geo-alt text-primary me-1"></i>{{ selectedSite.name }}</h6>
+        <span v-if="summary.minus > 0" class="badge bg-danger">{{ summary.minus }} Minus</span>
+        <span v-if="summary.critical > 0" class="badge bg-warning text-dark">{{ summary.critical }} Kritis</span>
+      </div>
+
+      <div class="csm-card mb-3">
+        <div class="csm-card-body py-2">
+          <div class="row g-2">
+            <div class="col-md-4">
+              <input v-model="filters.search" class="form-control form-control-sm" placeholder="🔍 Cari barang..." @input="debouncedLoad" />
+            </div>
+            <div class="col-md-3">
+              <select v-model="filters.category_id" class="form-select form-select-sm" @change="loadStocks">
+                <option value="">Semua Kategori</option>
+                <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <select v-model="filters.filter" class="form-select form-select-sm" @change="loadStocks">
+                <option value="">Semua Stok</option>
+                <option value="critical">🔴 Kritis</option>
+                <option value="minus">⚠️ Minus</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-outline-secondary btn-sm w-100" @click="resetFilters">Reset</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mb-3 flex-wrap">
+        <span class="badge bg-primary rounded-pill">Total: {{ meta.total }} item</span>
+        <span class="badge bg-danger rounded-pill">Minus: {{ summary.minus }}</span>
+        <span class="badge bg-warning text-dark rounded-pill">Kritis: {{ summary.critical }}</span>
+      </div>
+
+      <div class="csm-card">
+        <div class="csm-card-body p-0">
+          <div v-if="loading" class="p-4 text-center"><div class="csm-spinner"></div></div>
+          <div class="table-responsive" v-else>
+            <table class="table csm-table mb-0">
+              <thead>
+                <tr>
+                  <th>Part Number</th><th>Nama Barang</th><th>Kategori</th>
+                  <th class="text-end">Stok</th><th class="text-end">Min</th>
+                  <th>Satuan</th><th>Status Stok</th><th class="text-center">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!stocks.length"><td colspan="8" class="text-center text-muted py-4">Tidak ada data stok</td></tr>
+                <tr v-for="s in stocks" :key="s.id">
+                  <td><code class="text-primary small">{{ s.item?.part_number }}</code></td>
+                  <td>
+                    <div class="fw-semibold small">{{ s.item?.name }}</div>
+                    <small class="text-muted">{{ s.item?.brand }}</small>
+                  </td>
+                  <td><span class="badge bg-light text-dark border small">{{ s.item?.category?.name }}</span></td>
+                  <td class="text-end fw-bold">
+                    <span :class="parseFloat(s.qty) < 0 ? 'stock-minus' : parseFloat(s.qty) <= parseFloat(s.item?.min_stock) ? 'stock-low' : 'stock-ok'">
+                      {{ $formatNumber(s.qty) }}
+                    </span>
+                  </td>
+                  <td class="text-end text-muted small">{{ s.item?.min_stock }}</td>
+                  <td class="text-muted small">{{ s.item?.unit }}</td>
+                  <td>
+                    <span v-if="parseFloat(s.qty) < 0" class="badge bg-danger">Minus</span>
+                    <span v-else-if="parseFloat(s.qty) <= parseFloat(s.item?.min_stock) && parseFloat(s.item?.min_stock) > 0" class="badge bg-warning text-dark">Kritis</span>
+                    <span v-else class="badge bg-success">Normal</span>
+                  </td>
+                  <td class="text-center">
+                    <div class="btn-group btn-group-sm">
+                      <button v-if="can('create-stock-in')" class="btn btn-outline-success" title="Stok Masuk" @click="openStockIn(s)"><i class="bi bi-plus-circle"></i></button>
+                      <button v-if="can('create-stock-out')" class="btn btn-outline-warning" title="Stok Keluar" @click="openStockOut(s)"><i class="bi bi-dash-circle"></i></button>
+                      <button class="btn btn-outline-secondary" title="Histori" @click="showHistory(s)"><i class="bi bi-clock-history"></i></button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="d-flex align-items-center justify-content-between px-3 py-2 border-top" v-if="meta.total > 0">
+            <small class="text-muted">{{ meta.total }} item | Halaman {{ meta.page }} dari {{ meta.last_page }}</small>
+            <div class="d-flex gap-1">
+              <button class="btn btn-xs btn-outline-secondary" :disabled="meta.page <= 1" @click="changePage(meta.page-1)">‹ Prev</button>
+              <button class="btn btn-xs btn-outline-secondary" :disabled="meta.page >= meta.last_page" @click="changePage(meta.page+1)">Next ›</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="!sites.length" class="text-center py-5 text-muted">
+      <i class="bi bi-building fs-1 d-block mb-3 opacity-25"></i>
+      <p>Belum ada gudang site yang tersedia</p>
+    </div>
+
+    <!-- ══════════════ Modal Stok Masuk ══════════════ -->
+    <div class="modal fade" id="modalStockInSite" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title"><i class="bi bi-plus-circle text-success me-2"></i>Stok Masuk — {{ selectedSite?.name }}</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <!-- Searchable item picker -->
+            <div class="mb-3 position-relative" v-if="!selectedItem">
+              <label class="form-label small fw-semibold">Pilih Barang <span class="text-danger">*</span></label>
+              <input
+                v-model="stockInSearch"
+                type="text"
+                class="form-control"
+                placeholder="🔍 Cari nama / part number..."
+                autocomplete="off"
+                @input="filterStockInItems"
+                @focus="showStockInDrop = true; filterStockInItems()"
+                @blur="hideStockInDrop"
+              />
+              <ul v-if="showStockInDrop && stockInDropResults.length"
+                class="list-group position-absolute w-100 shadow"
+                style="z-index:9999;max-height:220px;overflow-y:auto;top:100%;left:0">
+                <li
+                  v-for="item in stockInDropResults" :key="item.id"
+                  class="list-group-item list-group-item-action py-2 px-3 small"
+                  style="cursor:pointer"
+                  @mousedown.prevent="selectStockInItem(item)"
+                >
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <span class="fw-semibold">{{ item.name }}</span>
+                      <span class="text-muted ms-2 small">{{ item.part_number }}</span>
+                    </div>
+                    <span class="badge bg-light text-dark border small">{{ item.unit }}</span>
+                  </div>
+                </li>
+              </ul>
+              <div v-if="form.item_id && stockInSelectedItem" class="alert alert-success py-2 small mt-2 mb-0">
+                <i class="bi bi-check-circle me-1"></i>
+                <strong>{{ stockInSelectedItem.name }}</strong>
+                <span class="text-muted ms-1">· {{ stockInSelectedItem.part_number }}</span>
+              </div>
+            </div>
+            <div v-else class="alert alert-info py-2 small mb-3">
+              <strong>{{ selectedItem.item.name }}</strong> | Stok saat ini: {{ $formatNumber(selectedItem.qty) }} {{ selectedItem.item.unit }}
+            </div>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label small fw-semibold">Jumlah <span class="text-danger">*</span></label>
+                <input v-model="form.qty" type="number" class="form-control" min="0.01" step="0.01" placeholder="0" />
+              </div>
+              <div class="col-6">
+                <label class="form-label small fw-semibold">Tanggal <span class="text-danger">*</span></label>
+                <input v-model="form.movement_date" type="date" class="form-control" />
+              </div>
+              <div class="col-6">
+                <label class="form-label small fw-semibold">No. PO</label>
+                <input v-model="form.po_number" type="text" class="form-control" placeholder="PO-xxx" />
+              </div>
+              <div class="col-6">
+                <label class="form-label small fw-semibold">No. Invoice</label>
+                <input v-model="form.invoice_number" type="text" class="form-control" placeholder="INV-xxx" />
+              </div>
+              <div class="col-12">
+                <label class="form-label small fw-semibold">Keterangan</label>
+                <input v-model="form.notes" type="text" class="form-control" placeholder="Keterangan..." />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+            <button type="button" class="btn btn-success btn-sm" @click="submitStockIn" :disabled="saving">
+              <span v-if="saving" class="csm-spinner me-1"></span>Simpan Stok Masuk
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ Modal Stok Keluar ══════════════ -->
+    <div class="modal fade" id="modalStockOutSite" tabindex="-1">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title"><i class="bi bi-dash-circle text-warning me-2"></i>Stok Keluar — {{ selectedSite?.name }}</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+
+            <div v-if="selectedItem" class="alert alert-warning py-2 small mb-3">
+              <strong>{{ selectedItem.item.name }}</strong> | Stok tersedia: <strong>{{ $formatNumber(selectedItem.qty) }}</strong> {{ selectedItem.item.unit }}
+            </div>
+
+            <!-- Header fields -->
+            <div class="row g-2 mb-3">
+              <div class="col-4">
+                <label class="form-label small fw-semibold">Tanggal <span class="text-danger">*</span></label>
+                <input v-model="outForm.movement_date" type="date" class="form-control form-control-sm" />
+              </div>
+              <div class="col-4">
+                <label class="form-label small fw-semibold">No. PO / WO</label>
+                <input v-model="outForm.po_number" type="text" class="form-control form-control-sm" placeholder="PO-xxx" />
+              </div>
+              <div class="col-4">
+                <label class="form-label small fw-semibold">HM / KM</label>
+                <input v-model="outForm.hm_km" type="number" class="form-control form-control-sm" />
+              </div>
+
+              <!-- Kode Unit searchable -->
+              <div class="col-4 position-relative">
+                <label class="form-label small fw-semibold">Kode Unit</label>
+                <input
+                  v-model="unitSearch"
+                  type="text"
+                  class="form-control form-control-sm"
+                  placeholder="Cari kode unit..."
+                  autocomplete="off"
+                  @input="filterUnits"
+                  @focus="showUnitDropdown = true"
+                  @blur="hideUnitDropdown"
+                />
+                <ul v-if="showUnitDropdown && filteredUnits.length" class="list-group position-absolute w-100 shadow-sm" style="z-index:9999;max-height:180px;overflow-y:auto;top:100%">
+                  <li v-for="u in filteredUnits" :key="u.id" class="list-group-item list-group-item-action py-1 px-2 small" style="cursor:pointer" @mousedown.prevent="selectUnit(u)">
+                    <strong>{{ u.unit_code }}</strong> — {{ u.type_unit }} <span class="text-muted">{{ u.brand }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div class="col-4">
+                <label class="form-label small fw-semibold">Tipe Unit</label>
+                <input v-model="outForm.unit_type" type="text" class="form-control form-control-sm" placeholder="ZX350" readonly />
+              </div>
+              <div class="col-4">
+                <label class="form-label small fw-semibold">Diterima Oleh / Mekanik <span class="text-danger">*</span></label>
+                <input v-model="outForm.received_by" type="text" class="form-control form-control-sm" placeholder="Nama penerima / mekanik..." />
+              </div>
+              <div class="col-12">
+                <label class="form-label small fw-semibold">Keterangan</label>
+                <input v-model="outForm.notes" type="text" class="form-control form-control-sm" placeholder="Keterangan pemakaian..." />
+              </div>
+            </div>
+
+            <!-- Tabel barang multi-item -->
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <span class="small fw-semibold text-secondary">Daftar Barang yang Dikeluarkan</span>
+              <button v-if="!selectedItem" class="btn btn-outline-warning btn-sm" @click="addOutItem">
+                <i class="bi bi-plus me-1"></i>Tambah Barang
+              </button>
+            </div>
+
+            <table class="table table-sm table-bordered align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:38%">Barang</th>
+                  <th style="width:15%">Stok Tersedia</th>
+                  <th style="width:20%">Jumlah Keluar</th>
+                  <th style="width:12%">Satuan</th>
+                  <th style="width:10%">Keterangan</th>
+                  <th style="width:5%"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in outItems" :key="idx" :class="row.needsPO ? 'table-warning' : ''">
+                  <td class="p-1">
+                    <input
+                      :ref="el => { if (el) itemInputRefs[idx] = el }"
+                      v-model="row.itemSearch"
+                      type="text"
+                      class="form-control form-control-sm"
+                      :placeholder="selectedItem ? selectedItem.item.name : 'Cari nama / part number...'"
+                      :disabled="!!selectedItem"
+                      @input="filterItems(idx)"
+                      @focus="onItemFocus(idx)"
+                      @blur="hideItemDrop(idx)"
+                      autocomplete="off"
+                    />
+                  </td>
+                  <td class="text-center p-1">
+                    <span v-if="row.needsPO" class="badge bg-danger small">
+                      <i class="bi bi-exclamation-triangle me-1"></i>Kosong
+                    </span>
+                    <span v-else :class="row.available > 0 ? 'text-success' : 'text-danger'" class="fw-semibold small">
+                      {{ row.available ?? '-' }}
+                    </span>
+                  </td>
+                  <td class="p-1">
+                    <div v-if="row.needsPO" class="text-center">
+                      <input v-model="row.qty" type="number" class="form-control form-control-sm text-center" min="0.01" step="0.01" placeholder="0" />
+                      <small class="text-danger d-block mt-1" style="font-size:0.65rem;">
+                        <i class="bi bi-arrow-right-circle me-1"></i>Akan dibuat PM → PO
+                      </small>
+                    </div>
+                    <input v-else v-model="row.qty" type="number" class="form-control form-control-sm text-center" min="0.01" step="0.01" placeholder="0" />
+                  </td>
+                  <td class="text-center p-1 small text-muted">{{ row.unit || '-' }}</td>
+                  <td class="text-center p-1">
+                    <span v-if="row.needsPO" class="badge bg-warning text-dark" style="font-size:0.65rem;">
+                      <i class="bi bi-file-earmark-text me-1"></i>PM/PO
+                    </span>
+                  </td>
+                  <td class="text-center p-1">
+                    <button v-if="!selectedItem || outItems.length > 1" class="btn btn-outline-danger btn-sm p-0 px-1" @click="removeOutItem(idx)" :disabled="outItems.length === 1 && !selectedItem">
+                      <i class="bi bi-x"></i>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+          </div>
+          <div class="modal-footer">
+            <div v-if="outItems.some(r => r.needsPO && r.item_id)" class="me-auto">
+              <small class="text-warning fw-semibold">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                {{ outItems.filter(r => r.needsPO && r.item_id).length }} barang stok kosong akan dibuatkan PM → PO
+              </small>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+            <button type="button" class="btn btn-warning btn-sm" @click="submitStockOut" :disabled="saving">
+              <span v-if="saving" class="csm-spinner me-1"></span>
+              <span v-if="outItems.some(r => r.needsPO && r.item_id) && outItems.some(r => !r.needsPO && r.item_id)">Simpan Stok Keluar + Buat PM</span>
+              <span v-else-if="outItems.every(r => !r.item_id || r.needsPO)">Buat Permintaan Material</span>
+              <span v-else>Simpan Stok Keluar</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dropdown teleport -->
+    <Teleport to="body">
+      <template v-for="(row, idx) in outItems" :key="'drop-site-'+idx">
+        <ul
+          v-if="row.showDrop && row.dropResults.length"
+          class="list-group shadow"
+          :style="row.dropStyle"
+        >
+          <li
+            v-for="s in row.dropResults"
+            :key="s.item_id"
+            class="list-group-item list-group-item-action py-2 px-3 small"
+            style="cursor:pointer"
+            @mousedown.prevent="selectItem(idx, s)"
+          >
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <span class="text-muted me-1">{{ s.item?.part_number }}</span>
+                <span class="fw-semibold">{{ s.item?.name }}</span>
+              </div>
+              <div class="ms-2">
+                <span v-if="s.hasStock && parseFloat(s.qty) > 0" class="badge bg-success">
+                  Stok: {{ s.qty }} {{ s.item?.unit }}
+                </span>
+                <span v-else class="badge bg-danger">
+                  <i class="bi bi-exclamation-triangle me-1"></i>Stok Kosong → PM/PO
+                </span>
+              </div>
+            </div>
+          </li>
+        </ul>
+      </template>
+    </Teleport>
+
+    <!-- Modal History -->
+    <div class="modal fade" id="modalHistorySite" tabindex="-1">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title">Histori — {{ selectedItem?.item?.name }}</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body p-0">
+            <div class="table-responsive">
+              <table class="table csm-table mb-0">
+                <thead>
+                  <tr>
+                    <th>Ref No</th><th>Tipe</th><th class="text-end">Qty</th>
+                    <th class="text-end">Sebelum</th><th class="text-end">Sesudah</th>
+                    <th>Catatan</th><th>Tanggal</th><th>User</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!history.length">
+                    <td colspan="8" class="text-center text-muted py-4">Belum ada histori</td>
+                  </tr>
+                  <tr v-for="m in history" :key="m.id">
+                    <td><code class="small">{{ m.reference_no }}</code></td>
+                    <td>
+                      <span class="badge" :class="m.type === 'in' || m.type === 'transfer_in' ? 'bg-success' : 'bg-danger'">
+                        {{ movLabel(m.type) }}
+                      </span>
+                    </td>
+                    <td class="text-end">{{ $formatNumber(m.qty) }}</td>
+                    <td class="text-end text-muted">{{ $formatNumber(m.qty_before) }}</td>
+                    <td class="text-end">{{ $formatNumber(m.qty_after) }}</td>
+                    <td><small>{{ m.notes || '-' }}</small></td>
+                    <td><small>{{ $formatDate(m.movement_date) }}</small></td>
+                    <td><small>{{ m.creator?.name }}</small></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted, onUnmounted } from 'vue'
+import axios from 'axios'
+import { Modal } from 'bootstrap'
+import { useRealtime } from '@/composables/useRealtime'
+import { useAuthStore } from '@/store/auth'
+import { useToast } from 'vue-toastification'
+
+const auth = useAuthStore()
+const toast = useToast()
+const { listenStok, stopStok } = useRealtime()
+
+const sites        = ref([])
+const categories   = ref([])
+const allItems     = ref([])
+const selectedSite = ref(null)
+const selectedItem = ref(null)
+const stocks       = ref([])
+const history      = ref([])
+const loading      = ref(false)
+const saving       = ref(false)
+const filters      = ref({ search: '', category_id: '', filter: '', page: 1 })
+const meta         = ref({ total: 0, page: 1, last_page: 1 })
+const summary      = ref({ minus: 0, critical: 0 })
+const form         = ref(defaultForm())
+
+// ── Unit search ──────────────────────────────────────────
+const unitSearch      = ref('')
+const showUnitDropdown = ref(false)
+const filteredUnits   = ref([])
+const allUnits        = ref([])
+
+// ── Stock In search ──────────────────────────────────────
+const stockInSearch       = ref('')
+const showStockInDrop     = ref(false)
+const stockInDropResults  = ref([])
+const stockInSelectedItem = ref(null)
+let stockInTimer = null
+
+// ── Stock Out multi-item ─────────────────────────────────
+const outForm      = ref(defaultOutForm())
+const outItems     = ref([defaultOutItem()])
+const itemInputRefs = ref([])
+
+let timer = null
+
+function can(p) { return auth.hasPermission(p) }
+
+function defaultForm() {
+  return {
+    item_id: '', qty: '',
+    movement_date: new Date().toISOString().split('T')[0],
+    po_number: '', invoice_number: '', notes: '',
+    unit_code: '', unit_type: '', hm_km: '', mechanic: '',
+  }
+}
+
+function defaultOutForm() {
+  return {
+    movement_date: new Date().toISOString().split('T')[0],
+    po_number: '', unit_code: '', unit_type: '',
+    hm_km: '', notes: '', received_by: '',
+  }
+}
+
+function defaultOutItem() {
+  return {
+    item_id: '', itemSearch: '', dropResults: [], showDrop: false,
+    qty: '', unit: '', available: null, dropStyle: {}, needsPO: false,
+  }
+}
+
+const movLabel = (type) => ({
+  in: 'Masuk', out: 'Keluar',
+  transfer_in: 'Terima', transfer_out: 'Kirim',
+  adjustment: 'Adj', opname: 'Opname',
+}[type] || type)
+
+// ── Unit search functions ────────────────────────────────
+function filterUnits() {
+  const q = unitSearch.value.toLowerCase()
+  filteredUnits.value = q.length < 1
+    ? allUnits.value.slice(0, 10)
+    : allUnits.value.filter(u =>
+        u.unit_code?.toLowerCase().includes(q) || u.type_unit?.toLowerCase().includes(q)
+      ).slice(0, 15)
+}
+function hideUnitDropdown() { setTimeout(() => { showUnitDropdown.value = false }, 150) }
+function selectUnit(u) {
+  unitSearch.value      = u.unit_code
+  outForm.value.unit_code = u.unit_code
+  outForm.value.unit_type = u.type_unit || ''
+  showUnitDropdown.value  = false
+}
+
+// ── Stock In search functions ────────────────────────────
+async function filterStockInItems() {
+  const q = stockInSearch.value.trim()
+  clearTimeout(stockInTimer)
+  if (q.length < 1) { stockInDropResults.value = []; return }
+  stockInTimer = setTimeout(async () => {
+    try {
+      const res = await axios.get('/items', { params: { search: q, per_page: 15 } })
+      stockInDropResults.value = res.data.data || []
+    } catch { stockInDropResults.value = [] }
+  }, 300)
+}
+function hideStockInDrop() { setTimeout(() => { showStockInDrop.value = false }, 150) }
+function selectStockInItem(item) {
+  form.value.item_id     = item.id
+  stockInSelectedItem.value = item
+  stockInSearch.value    = `${item.part_number} - ${item.name}`
+  showStockInDrop.value  = false
+}
+
+// ── Stock Out item search functions ─────────────────────
+function onItemFocus(idx) {
+  outItems.value[idx].showDrop = true
+  const el = itemInputRefs.value[idx]
+  if (el) {
+    const rect = el.getBoundingClientRect()
+    outItems.value[idx].dropStyle = {
+      position: 'fixed',
+      top:      rect.bottom + 2 + 'px',
+      left:     rect.left + 'px',
+      width:    Math.max(rect.width, 340) + 'px',
+      zIndex:   99999,
+      maxHeight: '220px',
+      overflowY: 'auto',
+      borderRadius: '6px',
+    }
+  }
+}
+
+const itemSearchTimers = {}
+function filterItems(idx) {
+  onItemFocus(idx)
+  const q = outItems.value[idx].itemSearch.trim()
+  if (q.length < 1) { outItems.value[idx].dropResults = []; return }
+
+  clearTimeout(itemSearchTimers[idx])
+  itemSearchTimers[idx] = setTimeout(async () => {
+    if (!selectedSite.value) return
+    try {
+      const [itemsRes, stocksRes] = await Promise.all([
+        axios.get('/items', { params: { search: q, per_page: 15 } }),
+        axios.get(`/warehouses/${selectedSite.value.id}/stocks`, { params: { search: q, per_page: 15 } }),
+      ])
+      const stockMap = {}
+      for (const s of (stocksRes.data.data || [])) stockMap[s.item_id] = s.qty
+      outItems.value[idx].dropResults = (itemsRes.data.data || []).map(item => ({
+        item_id: item.id,
+        item,
+        qty: stockMap[item.id] ?? 0,
+        hasStock: stockMap[item.id] !== undefined,
+      }))
+    } catch { outItems.value[idx].dropResults = [] }
+  }, 300)
+}
+
+function hideItemDrop(idx) { setTimeout(() => { outItems.value[idx].showDrop = false }, 150) }
+function selectItem(idx, s) {
+  outItems.value[idx].item_id    = s.item_id
+  outItems.value[idx].itemSearch = `${s.item?.part_number} - ${s.item?.name}`
+  outItems.value[idx].unit       = s.item?.unit || ''
+  outItems.value[idx].available  = s.qty
+  outItems.value[idx].needsPO    = !s.hasStock || parseFloat(s.qty) <= 0
+  outItems.value[idx].dropResults = []
+  outItems.value[idx].showDrop   = false
+}
+function addOutItem()        { outItems.value.push(defaultOutItem()) }
+function removeOutItem(idx)  { if (outItems.value.length > 1) outItems.value.splice(idx, 1) }
+
+// ── Load & Select site ───────────────────────────────────
+onMounted(async () => {
+  // Hanya load data ringan saat mount: sites & categories
+  const [sitesRes, catsRes] = await Promise.all([
+    axios.get('/warehouses', { params: { type: 'site' } }),
+    axios.get('/categories'),
+  ])
+  sites.value      = sitesRes.data.data
+  categories.value = catsRes.data.data
+
+  if (!auth.isSuperuser && !auth.isAdminHO && auth.userWarehouse?.type === 'site') {
+    const mySite = sites.value.find(s => s.id === auth.userWarehouseId)
+    if (mySite) selectSite(mySite)
+  } else if (sites.value.length === 1) {
+    selectSite(sites.value[0])
+  }
+
+  // Load units di background — tidak blokir tampilan awal
+  axios.get('/units', { params: { per_page: 999 } })
+    .then(r => {
+      allUnits.value      = r.data.data || []
+      filteredUnits.value = allUnits.value.slice(0, 10)
+    }).catch(() => {})
+
+  listenStok(() => loadStocks())
+})
+onUnmounted(() => stopStok())
+
+function selectSite(site) {
+  selectedSite.value = site
+  filters.value      = { search: '', category_id: '', filter: '', page: 1 }
+  loadStocks()
+}
+
+async function loadStocks() {
+  if (!selectedSite.value) return
+  loading.value = true
+  try {
+    const r = await axios.get(`/warehouses/${selectedSite.value.id}/stocks`, {
+      params: { ...filters.value, per_page: 25 }
+    })
+    stocks.value = r.data.data
+    meta.value   = r.data.meta
+    summary.value = {
+      minus:    stocks.value.filter(s => parseFloat(s.qty) < 0).length,
+      critical: stocks.value.filter(s => parseFloat(s.qty) >= 0 && parseFloat(s.qty) <= parseFloat(s.item?.min_stock) && s.item?.min_stock > 0).length,
+    }
+  } catch { toast.error('Gagal memuat data stok') }
+  finally { loading.value = false }
+}
+
+function debouncedLoad() { clearTimeout(timer); timer = setTimeout(() => { filters.value.page = 1; loadStocks() }, 400) }
+function changePage(p) { filters.value.page = p; loadStocks() }
+function resetFilters() { filters.value = { search: '', category_id: '', filter: '', page: 1 }; loadStocks() }
+
+// ── Modal openers ────────────────────────────────────────
+function openStockIn(stock = null) {
+  selectedItem.value    = stock
+  form.value            = defaultForm()
+  stockInSearch.value   = ''
+  stockInSelectedItem.value = null
+  stockInDropResults.value  = []
+  showStockInDrop.value = false
+  if (stock) form.value.item_id = stock.item_id
+  new Modal('#modalStockInSite').show()
+}
+
+function openStockOut(stock = null) {
+  selectedItem.value = stock
+  outForm.value      = defaultOutForm()
+  unitSearch.value   = ''
+  filteredUnits.value = allUnits.value.slice(0, 10)
+  if (stock) {
+    outItems.value = [{ ...defaultOutItem(), item_id: stock.item_id, itemSearch: `${stock.item?.part_number} - ${stock.item?.name}`, unit: stock.item?.unit || '', available: stock.qty }]
+  } else {
+    outItems.value = [defaultOutItem()]
+  }
+  new Modal('#modalStockOutSite').show()
+}
+
+async function showHistory(stock) {
+  selectedItem.value = stock
+  const res = await axios.get(`/items/${stock.item_id}/movements`, { params: { warehouse_id: selectedSite.value.id } })
+  history.value = res.data.data.data || res.data.data
+  new Modal('#modalHistorySite').show()
+}
+
+// ── Submit Stock In ──────────────────────────────────────
+async function submitStockIn() {
+  if (!form.value.item_id || !form.value.qty) return toast.error('Lengkapi data terlebih dahulu')
+  saving.value = true
+  try {
+    await axios.post(`/items/${form.value.item_id}/stock-in`, { ...form.value, warehouse_id: selectedSite.value.id })
+    toast.success('Stok masuk berhasil dicatat')
+    Modal.getInstance('#modalStockInSite')?.hide()
+    loadStocks()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Gagal menyimpan stok masuk')
+  } finally { saving.value = false }
+}
+
+// ── Submit Stock Out ─────────────────────────────────────
+async function submitStockOut() {
+  const validItems = outItems.value.filter(r => r.item_id && r.qty > 0)
+  if (!validItems.length) return toast.error('Tambahkan minimal 1 barang dengan jumlah yang valid')
+  if (!outForm.value.movement_date) return toast.error('Tanggal wajib diisi')
+  if (!outForm.value.received_by?.trim()) return toast.error('Nama penerima / mekanik wajib diisi')
+
+  const stockItems = validItems.filter(r => !r.needsPO)
+  const poItems    = validItems.filter(r => r.needsPO)
+
+  saving.value = true
+  try {
+    const basePayload = {
+      warehouse_id: selectedSite.value.id,
+      received_by:  outForm.value.received_by,
+      issue_date:   outForm.value.movement_date,
+      po_number:    outForm.value.po_number || null,
+      unit_code:    outForm.value.unit_code || null,
+      unit_type:    outForm.value.unit_type || null,
+      hm_km:        outForm.value.hm_km || null,
+      mechanic:     outForm.value.received_by || null,
+      notes:        outForm.value.notes || null,
+    }
+
+    const messages = []
+
+    // 1. Bon Pengeluaran untuk barang ada stok
+    if (stockItems.length) {
+      const res = await axios.post('/bon-pengeluaran', {
+        ...basePayload,
+        auto_issue: true,
+        items: stockItems.map(r => ({
+          item_id:     r.item_id,
+          nama_barang: r.itemSearch.split(' - ').slice(1).join(' - ') || r.itemSearch,
+          qty:         r.qty,
+          satuan:      r.unit || 'PCS',
+          keterangan:  null,
+        })),
+      })
+      messages.push(`✅ Bon ${res.data.data?.bon_number} — ${stockItems.length} barang dikeluarkan`)
+    }
+
+    // 2. PM otomatis untuk barang stok kosong
+    if (poItems.length) {
+      const pmRes = await axios.post('/permintaan-material', {
+        warehouse_id: selectedSite.value.id,
+        type:         'part',
+        needed_date:  outForm.value.movement_date,
+        notes:        `Auto PM dari Stok Keluar — Unit: ${outForm.value.unit_code || '-'} ${outForm.value.notes ? '| ' + outForm.value.notes : ''}`.trim(),
+        items: poItems.map(r => ({
+          nama_barang: r.itemSearch.split(' - ').slice(1).join(' - ') || r.itemSearch,
+          item_id:     r.item_id || null,
+          part_number: r.itemSearch.split(' - ')[0] || '',
+          kode_unit:   outForm.value.unit_code || '',
+          tipe_unit:   outForm.value.unit_type || '',
+          qty:         r.qty,
+          satuan:      r.unit || 'PCS',
+          keterangan:  'Stok kosong saat pengajuan Stok Keluar',
+        })),
+      })
+      const pmNumber = pmRes.data.data?.pm_number || ''
+      messages.push(`📋 PM ${pmNumber} dibuat — ${poItems.length} barang stok kosong menunggu proses PO`)
+    }
+
+    messages.forEach(m => toast.success(m, { timeout: 5000 }))
+    Modal.getInstance('#modalStockOutSite')?.hide()
+    loadStocks()
+  } catch (e) {
+    toast.error(e.response?.data?.message || e.response?.data?.errors?.stock || Object.values(e.response?.data?.errors || {})[0]?.[0] || 'Gagal menyimpan')
+  } finally { saving.value = false }
+}
+</script>

@@ -1,0 +1,22 @@
+# Laravel
+/vendor
+/node_modules
+.env
+/public/storage
+/storage/*.key
+
+# Build
+/public/build
+/public/hot
+
+# Logs
+npm-debug.log
+yarn-error.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
