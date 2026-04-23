@@ -1,22 +1,11 @@
-# Laravel
 /vendor
 /node_modules
 .env
-/public/storage
-/storage/*.key
-
-# Build
-/public/build
-/public/hot
-
-# Logs
+/storage/*
+/bootstrap/cache/*
+public/storage
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
 npm-debug.log
 yarn-error.log
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode
-.idea
