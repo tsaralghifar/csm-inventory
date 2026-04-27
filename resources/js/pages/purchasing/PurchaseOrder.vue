@@ -329,7 +329,7 @@
                 <tbody>
                   <tr v-if="!availablePMs.length">
                     <td colspan="7" class="text-center text-muted py-4">
-                      Tidak ada PM yang tersedia (status: approved / partial_ordered)
+                      Tidak ada PM yang tersedia (status: approved / pending_purchasing / partial_ordered)
                     </td>
                   </tr>
                   <tr v-for="pm in availablePMs" :key="pm.id"
@@ -757,7 +757,7 @@ async function searchPM() {
   try {
     const res = await axios.get('/permintaan-material', {
       params: {
-        status: 'approved,manager_approved,partial_ordered',
+        status: 'approved,manager_approved,partial_ordered,pending_purchasing',
         search: pmSearch.value || undefined,
         warehouse_id: pmWarehouseFilter.value || undefined,
         per_page: 50,

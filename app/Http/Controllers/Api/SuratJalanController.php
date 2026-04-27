@@ -148,12 +148,18 @@ class SuratJalanController extends Controller
                 $qtyBefore = $stock->qty;
                 $newPrice = (float) ($sjItem->harga_satuan ?? 0);
 
-                // Hitung Average Cost (AVCO)
+                // Hitung Simple Average (rata-rata sederhana semua harga pembelian)
                 if ($newPrice > 0) {
                     $oldAvg = (float) $stock->avg_price;
-                    $newAvg = $qtyBefore > 0
-                        ? (($qtyBefore * $oldAvg) + ($sjItem->qty_received * $newPrice)) / ($qtyBefore + $sjItem->qty_received)
-                        : $newPrice;
+
+                    // Ambil semua harga pembelian sebelumnya dari history, tambahkan harga baru, lalu rata-rata
+                    $priceHistory = \App\Models\ItemPriceHistory::where('item_id', $sjItem->item_id)
+                        ->where('warehouse_id', $suratJalan->warehouse_id)
+                        ->pluck('purchase_price')
+                        ->map(fn($p) => (float) $p)
+                        ->push($newPrice);
+
+                    $newAvg = $priceHistory->avg();
 
                     $stock->avg_price = $newAvg;
 

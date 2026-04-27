@@ -22,12 +22,18 @@ class StockService
             $qty = (float) $data['qty'];
             $newPrice = (float) ($data['price'] ?? 0);
 
-            // Hitung Average Cost (AVCO)
+            // Hitung Simple Average (rata-rata sederhana semua harga pembelian)
             if ($newPrice > 0) {
                 $oldAvg = (float) $itemStock->avg_price;
-                $newAvg = $qtyBefore > 0
-                    ? (($qtyBefore * $oldAvg) + ($qty * $newPrice)) / ($qtyBefore + $qty)
-                    : $newPrice;
+
+                // Ambil semua harga pembelian sebelumnya dari history, tambahkan harga baru, lalu rata-rata
+                $priceHistory = \App\Models\ItemPriceHistory::where('item_id', $data['item_id'])
+                    ->where('warehouse_id', $data['warehouse_id'])
+                    ->pluck('purchase_price')
+                    ->map(fn($p) => (float) $p)
+                    ->push($newPrice);
+
+                $newAvg = $priceHistory->avg();
 
                 $itemStock->avg_price = $newAvg;
 
@@ -279,5 +285,42 @@ class StockService
             'critical_items' => $stocks->filter(fn($s) => $s->isCritical())->count(),
             'minus_items' => $stocks->filter(fn($s) => $s->isMinus())->count(),
         ];
+    }
+
+    /**
+     * Penyesuaian stok dari Stok Opname (adjustment)
+     * $data harus berisi: item_id, warehouse_id, qty, type ('in'|'out'), notes, movement_date, reference_no
+     */
+    public function adjustment(array $data, int $userId): StockMovement
+    {
+        $itemStock = ItemStock::firstOrCreate(
+            ['item_id' => $data['item_id'], 'warehouse_id' => $data['warehouse_id']],
+            ['qty' => 0, 'avg_price' => 0]
+        );
+
+        $qtyBefore = (float) $itemStock->qty;
+        $qty       = (float) $data['qty'];
+        $isIn      = $data['type'] === 'in';
+
+        $qtyAfter  = $isIn ? $qtyBefore + $qty : $qtyBefore - $qty;
+
+        $itemStock->update(['qty' => $qtyAfter, 'last_updated' => now()]);
+
+        return StockMovement::create([
+            'reference_no'      => $data['reference_no'],
+            'type'              => 'adjustment',
+            'item_id'           => $data['item_id'],
+            'to_warehouse_id'   => $isIn  ? $data['warehouse_id'] : null,
+            'from_warehouse_id' => !$isIn ? $data['warehouse_id'] : null,
+            'qty'               => $isIn ? $qty : -$qty,
+            'qty_before'        => $qtyBefore,
+            'qty_after'         => $qtyAfter,
+            'price'             => 0,
+            'notes'             => $data['notes'],
+            'movement_date'     => $data['movement_date'],
+            'created_by'        => $userId,
+            'moveable_type'     => \App\Models\StokOpname::class,
+            'moveable_id'       => 0,
+        ]);
     }
 }

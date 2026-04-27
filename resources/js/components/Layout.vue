@@ -47,6 +47,9 @@
         <router-link v-if="can('manage-items')" to="/stok/import-saldo-awal" class="csm-nav-link" :class="{ active: $route.path.startsWith('/stok/import-saldo-awal') }">
           <i class="bi bi-file-earmark-arrow-up"></i> Import Saldo Awal
         </router-link>
+        <router-link v-if="can('view-stocks')" to="/stok/opname" class="csm-nav-link" :class="{ active: $route.path.startsWith('/stok/opname') }">
+          <i class="bi bi-clipboard-check"></i> Stok Opname
+        </router-link>
         <router-link v-if="can('view-stocks')" to="/mutasi" class="csm-nav-link" :class="{ active: $route.path.startsWith('/mutasi') }">
           <i class="bi bi-arrow-left-right"></i> Histori Mutasi
         </router-link>

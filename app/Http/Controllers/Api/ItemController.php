@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Item;
 use App\Models\ItemStock;
+use App\Models\ItemPriceHistory;
 use App\Services\StockService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ItemController extends Controller
 {
@@ -24,15 +26,26 @@ class ItemController extends Controller
 
         $items = $query->orderBy('name')->paginate($request->per_page ?? 20);
 
+        // Hitung simple average price dari item_price_history untuk semua item di halaman ini
+        $itemIds = $items->getCollection()->pluck('id');
+        $avgPrices = \App\Models\ItemPriceHistory::whereIn('item_id', $itemIds)
+            ->select('item_id', \Illuminate\Support\Facades\DB::raw('AVG(purchase_price) as simple_avg'))
+            ->groupBy('item_id')
+            ->pluck('simple_avg', 'item_id');
+
         // Append stock for specific warehouse if requested
-        if ($request->warehouse_id) {
-            $items->getCollection()->transform(function ($item) use ($request) {
+        $items->getCollection()->transform(function ($item) use ($request, $avgPrices) {
+            // Override price dengan simple average dari history
+            if ($avgPrices->has($item->id)) {
+                $item->price = round((float) $avgPrices[$item->id], 2);
+            }
+            if ($request->warehouse_id) {
                 $stock = $item->itemStocks->where('warehouse_id', $request->warehouse_id)->first();
                 $item->current_stock = $stock ? (float) $stock->qty : 0;
                 $item->is_critical = $stock ? $stock->isCritical() : false;
-                return $item;
-            });
-        }
+            }
+            return $item;
+        });
 
         return response()->json([
             'success' => true,

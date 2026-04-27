@@ -81,7 +81,7 @@ class PurchaseOrderController extends Controller
         // Validasi status setiap PM
         foreach ($pmIds as $pmId) {
             $pm = PermintaanMaterial::findOrFail($pmId);
-            if (!in_array($pm->status, ['approved', 'manager_approved', 'purchasing', 'partial_ordered', 'completed'])) {
+            if (!in_array($pm->status, ['approved', 'manager_approved', 'pending_purchasing', 'purchasing', 'partial_ordered', 'completed'])) {
                 throw ValidationException::withMessages([
                     'status' => "PM {$pm->nomor} harus sudah disetujui sebelum membuat PO.",
                 ]);

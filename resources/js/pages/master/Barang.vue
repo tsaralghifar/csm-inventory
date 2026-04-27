@@ -170,7 +170,7 @@
             <!-- Summary -->
             <div class="d-flex gap-3 p-3 border-bottom bg-light flex-wrap">
               <div class="text-center px-3">
-                <div class="fw-bold text-primary fs-6">{{ $formatCurrency(selectedItem?.price || 0) }}</div>
+                <div class="fw-bold text-primary fs-6">{{ priceHistory.length > 0 ? $formatCurrency(priceHistory.reduce((sum,h) => sum + parseFloat(h.purchase_price), 0) / priceHistory.length) : '-' }}</div>
                 <small class="text-muted">Harga Rata-rata Saat Ini</small>
               </div>
               <div class="text-center px-3 border-start">

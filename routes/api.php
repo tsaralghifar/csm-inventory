@@ -1029,4 +1029,84 @@ Route::middleware('auth:sanctum')->group(function () {
     // Import Saldo Awal Stok
     Route::post('/import-saldo-awal/preview', [\App\Http\Controllers\Api\ImportSaldoAwalController::class, 'preview']);
     Route::post('/import-saldo-awal/import', [\App\Http\Controllers\Api\ImportSaldoAwalController::class, 'import']);
+
+    // Stok Opname / Penyesuaian Stok
+    Route::get('/stok-opname', [\App\Http\Controllers\Api\StokOpnameController::class, 'index']);
+    Route::post('/stok-opname', [\App\Http\Controllers\Api\StokOpnameController::class, 'store']);
+    Route::get('/stok-opname/{stokOpname}', [\App\Http\Controllers\Api\StokOpnameController::class, 'show']);
+    Route::put('/stok-opname/{stokOpname}', [\App\Http\Controllers\Api\StokOpnameController::class, 'update']);
+    Route::delete('/stok-opname/{stokOpname}', [\App\Http\Controllers\Api\StokOpnameController::class, 'destroy']);
+    Route::post('/stok-opname/{stokOpname}/ajukan', [\App\Http\Controllers\Api\StokOpnameController::class, 'ajukan']);
+    Route::post('/stok-opname/{stokOpname}/setujui', [\App\Http\Controllers\Api\StokOpnameController::class, 'setujui']);
+    Route::post('/stok-opname/{stokOpname}/tolak', [\App\Http\Controllers\Api\StokOpnameController::class, 'tolak']);
+
+    // Utility: Recalculate avg_price (jalankan sekali untuk fix data lama)
+    Route::post('/utility/recalculate-avg-price', function (\Illuminate\Http\Request $request) {
+        $dryRun = $request->boolean('dry_run', false);
+        $results = [];
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($dryRun, &$results) {
+            $groups = \App\Models\ItemPriceHistory::select('item_id', 'warehouse_id')
+                ->groupBy('item_id', 'warehouse_id')
+                ->get();
+
+            $itemAvgMap = [];
+
+            foreach ($groups as $g) {
+                $prices    = \App\Models\ItemPriceHistory::where('item_id', $g->item_id)
+                    ->where('warehouse_id', $g->warehouse_id)
+                    ->pluck('purchase_price')
+                    ->map(fn($p) => (float) $p);
+
+                $simpleAvg = $prices->avg();
+
+                $stock = \App\Models\ItemStock::where('item_id', $g->item_id)
+                    ->where('warehouse_id', $g->warehouse_id)
+                    ->first();
+
+                if ($stock) {
+                    $results[] = [
+                        'item_id'      => $g->item_id,
+                        'warehouse_id' => $g->warehouse_id,
+                        'avg_lama'     => (float) $stock->avg_price,
+                        'avg_baru'     => $simpleAvg,
+                        'n_transaksi'  => $prices->count(),
+                    ];
+                    if (!$dryRun) {
+                        $stock->update(['avg_price' => $simpleAvg]);
+                    }
+                }
+
+                $itemAvgMap[$g->item_id][] = $simpleAvg;
+            }
+
+            foreach ($itemAvgMap as $itemId => $avgList) {
+                $itemAvg = array_sum($avgList) / count($avgList);
+                $item    = \App\Models\Item::find($itemId);
+                if ($item) {
+                    foreach ($results as &$r) {
+                        if ($r['item_id'] === $itemId) {
+                            $r['item_name']  = $item->name;
+                            $r['price_lama'] = (float) $item->price;
+                            $r['price_baru'] = $itemAvg;
+                        }
+                    }
+                    unset($r);
+                    if (!$dryRun) {
+                        $item->update(['price' => $itemAvg]);
+                    }
+                }
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'dry_run' => $dryRun,
+            'updated' => count($results),
+            'results' => $results,
+            'message' => $dryRun
+                ? 'Dry run selesai. Kirim dry_run=false untuk apply.'
+                : 'Recalculate selesai. Semua avg_price & price sudah diperbarui.',
+        ]);
+    });
 });

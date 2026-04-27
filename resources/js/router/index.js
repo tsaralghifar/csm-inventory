@@ -36,6 +36,7 @@ const routes = [
       { path: 'transfer-barang/:id', component: () => import('@/pages/transfer/DetailTransfer.vue'), meta: { title: 'Detail Transfer', permission: 'view-mr' } },
 
       // Mutasi / Pergerakan
+      { path: 'stok/opname', component: () => import('@/pages/stok/StokOpname.vue'), meta: { title: 'Stok Opname', icon: 'bi-clipboard-check', permission: 'view-stocks' } },
       { path: 'mutasi', component: () => import('@/pages/mutasi/Mutasi.vue'), meta: { title: 'Histori Mutasi', icon: 'bi-arrow-left-right', permission: 'view-stocks' } },
 
       // BBM / Solar

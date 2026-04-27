@@ -172,6 +172,21 @@
                 <input v-model="form.movement_date" type="date" class="form-control" />
               </div>
               <div class="col-6">
+                <label class="form-label small fw-semibold">Tipe Masuk <span class="text-danger">*</span></label>
+                <select v-model="form.tipe_masuk" class="form-select">
+                  <option value="">-- Pilih Tipe --</option>
+                  <option value="Koreksi Opname">Koreksi Opname</option>
+                  <option value="Retur dari Site">Retur dari Site</option>
+                  <option value="Temuan Stok">Temuan Stok</option>
+                  <option value="Pembelian Langsung">Pembelian Langsung</option>
+                  <option value="Lainnya">Lainnya</option>
+                </select>
+              </div>
+              <div class="col-6">
+                <label class="form-label small fw-semibold">No. Referensi Dokumen <span class="text-danger">*</span></label>
+                <input v-model="form.no_referensi" type="text" class="form-control" placeholder="Cth: BA-OPNAME-001 / INV-xxx" />
+              </div>
+              <div class="col-6">
                 <label class="form-label small fw-semibold">No. PO</label>
                 <input v-model="form.po_number" type="text" class="form-control" placeholder="PO-xxx" />
               </div>
@@ -579,7 +594,7 @@ const { listenStok, stopStok } = useRealtime()
 
 function can(p) { return auth.hasPermission(p) }
 function defaultForm() {
-  return { item_id: '', qty: '', movement_date: new Date().toISOString().split('T')[0], po_number: '', invoice_number: '', notes: '', unit_code: '', unit_type: '', hm_km: '', mechanic: '' }
+  return { item_id: '', qty: '', movement_date: new Date().toISOString().split('T')[0], tipe_masuk: '', no_referensi: '', po_number: '', invoice_number: '', notes: '', unit_code: '', unit_type: '', hm_km: '', mechanic: '' }
 }
 
 const movLabel = (type) => ({ in: 'Masuk', out: 'Keluar', transfer_in: 'Terima', transfer_out: 'Kirim', adjustment: 'Adj', opname: 'Opname' }[type] || type)
@@ -660,9 +675,12 @@ async function showHistory(stock) {
 
 async function submitStockIn() {
   if (!form.value.item_id || !form.value.qty) return toast.error('Lengkapi data')
+  if (!form.value.tipe_masuk) return toast.error('Tipe masuk wajib dipilih')
+  if (!form.value.no_referensi?.trim()) return toast.error('No. Referensi Dokumen wajib diisi')
   saving.value = true
   try {
-    await axios.post(`/items/${form.value.item_id}/stock-in`, { ...form.value, warehouse_id: hoWarehouseId.value })
+    const notesEnriched = `[${form.value.tipe_masuk}] Ref: ${form.value.no_referensi}${form.value.notes ? ' | ' + form.value.notes : ''}`
+    await axios.post(`/items/${form.value.item_id}/stock-in`, { ...form.value, warehouse_id: hoWarehouseId.value, notes: notesEnriched })
     toast.success('Stok masuk berhasil dicatat')
     Modal.getInstance('#modalStockIn')?.hide()
     loadStocks()

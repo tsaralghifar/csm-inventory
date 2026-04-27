@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ItemStock;
+use App\Models\ItemPriceHistory;
 use App\Models\StockMovement;
 use App\Models\MaterialRequest;
 use App\Models\FuelLog;
@@ -26,12 +27,21 @@ class ReportController extends Controller
             if ($request->filter === 'critical') $query->whereHas('item', fn($q) => $q->whereColumn('item_stocks.qty', '<=', 'items.min_stock'));
             if ($request->filter === 'minus') $query->where('qty', '<', 0);
 
-            $stocks = $query->get()->map(fn($s) => [
+            $rawStocks = $query->get();
+
+            // Hitung simple average dari item_price_history per item+gudang
+            $historyAvg = ItemPriceHistory::whereIn('item_id', $rawStocks->pluck('item_id'))
+                ->where('warehouse_id', $request->warehouse_id)
+                ->select('item_id', DB::raw('AVG(purchase_price) as simple_avg'))
+                ->groupBy('item_id')
+                ->pluck('simple_avg', 'item_id');
+
+            $stocks = $rawStocks->map(fn($s) => [
                 'id'        => $s->id,
                 'item_id'   => $s->item_id,
                 'item'      => $s->item,
                 'qty'       => (float) $s->qty,
-                'avg_price' => (float) $s->avg_price,
+                'avg_price' => $historyAvg->has($s->item_id) ? round((float) $historyAvg[$s->item_id], 2) : (float) $s->avg_price,
                 'gudang'    => [['id' => $s->warehouse_id, 'name' => $s->warehouse->name, 'qty' => (float) $s->qty]],
             ]);
         } else {
@@ -40,20 +50,31 @@ class ReportController extends Controller
 
             $allStocks = $query->get();
 
+            // Hitung simple average dari item_price_history per item (semua gudang)
+            $historyAvg = ItemPriceHistory::whereIn('item_id', $allStocks->pluck('item_id')->unique())
+                ->select('item_id', DB::raw('AVG(purchase_price) as simple_avg'))
+                ->groupBy('item_id')
+                ->pluck('simple_avg', 'item_id');
+
             // Group by item_id, jumlahkan qty, kumpulkan info gudang
-            $grouped = $allStocks->groupBy('item_id')->map(function ($rows) {
+            $grouped = $allStocks->groupBy('item_id')->map(function ($rows) use ($historyAvg) {
                 $first    = $rows->first();
                 $totalQty = $rows->sum(fn($s) => (float) $s->qty);
                 $gudang   = $rows->filter(fn($s) => $s->qty != 0)
                     ->map(fn($s) => ['id' => $s->warehouse_id, 'name' => $s->warehouse->name, 'qty' => (float) $s->qty])
                     ->values();
 
+                // Pakai simple average dari history, fallback ke avg_price di item_stocks
+                $avgPrice = $historyAvg->has($first->item_id)
+                    ? round((float) $historyAvg[$first->item_id], 2)
+                    : $rows->avg(fn($s) => (float) $s->avg_price);
+
                 return [
                     'id'        => $first->id,
                     'item_id'   => $first->item_id,
                     'item'      => $first->item,
                     'qty'       => $totalQty,
-                    'avg_price' => (float) $first->avg_price,
+                    'avg_price' => $avgPrice,
                     'gudang'    => $gudang,
                 ];
             })->values();
@@ -70,7 +91,7 @@ class ReportController extends Controller
 
         $summary = [
             'total_items' => $stocks->count(),
-            'total_value' => $stocks->sum(fn($s) => max(0, $s['qty'] ?? $s->qty ?? 0) * ($s['item']->price ?? 0)),
+            'total_value' => $stocks->sum(fn($s) => max(0, $s['qty'] ?? $s->qty ?? 0) * ($s['avg_price'] ?? $s->avg_price ?? 0)),
             'critical'    => $stocks->filter(fn($s) => ($s['qty'] ?? 0) >= 0 && ($s['qty'] ?? 0) <= ($s['item']->min_stock ?? 0) && ($s['item']->min_stock ?? 0) > 0)->count(),
             'minus'       => $stocks->filter(fn($s) => ($s['qty'] ?? 0) < 0)->count(),
         ];

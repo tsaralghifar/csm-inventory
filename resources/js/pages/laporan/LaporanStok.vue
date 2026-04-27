@@ -194,9 +194,9 @@
                   </span>
                 </td>
                 <td class="text-end small text-muted">{{ s.item?.min_stock || '0' }}</td>
-                <td class="text-end small">{{ s.item?.price>0 ? $formatCurrency(s.item.price) : '—' }}</td>
+                <td class="text-end small">{{ s.avg_price>0 ? $formatCurrency(s.avg_price) : '—' }}</td>
                 <td class="text-end small fw-semibold">
-                  {{ s.item?.price>0 ? $formatCurrency(Math.max(0,parseFloat(s.qty))*s.item.price) : '—' }}
+                  {{ s.avg_price>0 ? $formatCurrency(Math.max(0,parseFloat(s.qty))*s.avg_price) : '—' }}
                 </td>
                 <td class="text-center">
                   <span v-if="parseFloat(s.qty)<0" class="badge bg-danger" style="font-size:0.68rem;">Minus</span>
@@ -224,7 +224,7 @@
           <small class="text-muted d-none d-md-inline">
             Nilai ditampilkan:
             <strong class="text-success">
-              {{ $formatCurrency(filteredStocks.reduce((a,s)=>a+(s.item?.price>0?Math.max(0,parseFloat(s.qty))*s.item.price:0),0)) }}
+              {{ $formatCurrency(filteredStocks.reduce((a,s)=>a+(s.avg_price>0?Math.max(0,parseFloat(s.qty))*s.avg_price:0),0)) }}
             </strong>
           </small>
         </div>
@@ -389,12 +389,12 @@ async function exportExcel() {
     .forEach((h,c) => sc(R,c,h,S.th))
   R++
 
-  const totalNilai = stocks.value.reduce((acc,s) => acc + (s.item?.price>0 ? Math.max(0,s.qty)*s.item.price : 0), 0)
+  const totalNilai = stocks.value.reduce((acc,s) => acc + (s.avg_price>0 ? Math.max(0,s.qty)*s.avg_price : 0), 0)
 
   stocks.value.forEach((s,i) => {
     const qty=s.qty, minStock=s.item?.min_stock||0
     const isMinus=qty<0, isKritis=!isMinus&&minStock>0&&qty<=minStock
-    const nilai=s.item?.price>0?Math.max(0,qty)*s.item.price:0
+    const nilai=s.avg_price>0?Math.max(0,qty)*s.avg_price:0
     const row=i%2===0?S.rowEven:S.rowOdd
     const qtyColor=isMinus?'DC2626':isKritis?'D97706':'15803D'
     const sLbl=isMinus?'Minus':isKritis?'Kritis':'Normal'
@@ -410,7 +410,7 @@ async function exportExcel() {
     sc(R,6,  qty,                          row({font:{bold:true,sz:10,color:{rgb:qtyColor}},alignment:{horizontal:'center',vertical:'center'}}))
     sc(R,7,  s.item?.unit||'',             row({font:{sz:9,color:{rgb:'64748B'}},alignment:{horizontal:'center',vertical:'center'}}))
     sc(R,8,  minStock,                     row({font:{sz:9,color:{rgb:'64748B'}},alignment:{horizontal:'center',vertical:'center'}}))
-    sc(R,9,  fmtCurrency(s.item?.price),   row({font:{sz:9},alignment:{horizontal:'right',vertical:'center'}}))
+    sc(R,9,  fmtCurrency(s.avg_price),     row({font:{sz:9},alignment:{horizontal:'right',vertical:'center'}}))
     sc(R,10, nilai>0?fmtCurrency(nilai):'-', row({font:{bold:true,sz:10},alignment:{horizontal:'right',vertical:'center'}}))
     sc(R,11, sLbl,                         row({font:{bold:true,sz:9,color:{rgb:sFont}},fill:{fgColor:{rgb:sFill}},alignment:{horizontal:'center',vertical:'center'}}))
     R++
