@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\MaterialRequestController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WarehouseController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Models\Category;
 use App\Models\DeliveryOrder;
 use App\Models\Employee;
@@ -29,10 +30,10 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
 // Public routes
-Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/login', [AuthController::class, 'login'])->middleware('api.limit:strict');
 
 // Protected routes
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'api.limit:standard'])->group(function () {
 
     // Auth
     Route::get('/auth/me', [AuthController::class, 'me']);
@@ -40,7 +41,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
 
     // Dashboard
-    Route::get('/dashboard', [DashboardController::class, 'index']);
+    Route::middleware('api.limit:relaxed')->group(function () {
+        Route::get('/dashboard', [DashboardController::class, 'index']);
+    });
+
+    // Notifikasi
+    Route::prefix('notifications')->middleware('api.limit:relaxed')->group(function () {
+        Route::get('/',              [NotificationController::class, 'index']);
+        Route::get('/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::get('/low-stock',    [NotificationController::class, 'lowStockSummary']);
+        Route::post('/read-all',    [NotificationController::class, 'markAllRead']);
+        Route::post('/{id}/read',   [NotificationController::class, 'markRead']);
+    });
 
     // Warehouses
     Route::get('/warehouses', [WarehouseController::class, 'index']);

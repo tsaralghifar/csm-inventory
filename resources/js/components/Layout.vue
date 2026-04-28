@@ -186,6 +186,10 @@
           <span class="badge bg-light text-dark border" style="font-size:0.72rem;">
             <i class="bi bi-building me-1"></i>{{ auth.userWarehouse?.name || 'Semua Gudang' }}
           </span>
+
+          <!-- ── Notification Bell ── -->
+          <NotificationBell />
+
           <div class="dropdown">
             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
               <i class="bi bi-person-circle me-1"></i>{{ auth.user?.name }}
@@ -201,6 +205,9 @@
 
       <!-- Page Content -->
       <div class="csm-content">
+        <!-- ── Low Stock Alert Banner ── -->
+        <LowStockAlert />
+
         <router-view />
       </div>
     </main>
@@ -215,6 +222,8 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { useToast } from 'vue-toastification'
+import NotificationBell from '@/components/NotificationBell.vue'
+import LowStockAlert from '@/components/LowStockAlert.vue'
 
 const auth = useAuthStore()
 const router = useRouter()

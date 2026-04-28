@@ -11,6 +11,8 @@ use Illuminate\Validation\ValidationException;
 
 class StockService
 {
+    public function __construct(private LowStockAlertService $lowStockAlert) {}
+
     /**
      * Add stock to a warehouse (stock in from supplier)
      */
@@ -22,11 +24,9 @@ class StockService
             $qty = (float) $data['qty'];
             $newPrice = (float) ($data['price'] ?? 0);
 
-            // Hitung Simple Average (rata-rata sederhana semua harga pembelian)
             if ($newPrice > 0) {
                 $oldAvg = (float) $itemStock->avg_price;
 
-                // Ambil semua harga pembelian sebelumnya dari history, tambahkan harga baru, lalu rata-rata
                 $priceHistory = \App\Models\ItemPriceHistory::where('item_id', $data['item_id'])
                     ->where('warehouse_id', $data['warehouse_id'])
                     ->pluck('purchase_price')
@@ -34,25 +34,22 @@ class StockService
                     ->push($newPrice);
 
                 $newAvg = $priceHistory->avg();
-
                 $itemStock->avg_price = $newAvg;
 
-                // Update harga di master item
                 \App\Models\Item::where('id', $data['item_id'])
                     ->update(['price' => $newAvg]);
 
-                // Catat riwayat harga
                 \App\Models\ItemPriceHistory::create([
-                    'item_id'           => $data['item_id'],
-                    'warehouse_id'      => $data['warehouse_id'],
-                    'purchase_price'    => $newPrice,
-                    'avg_price_before'  => $oldAvg,
-                    'avg_price_after'   => $newAvg,
-                    'qty_received'      => $qty,
-                    'reference_no'      => $data['po_number'] ?? null,
-                    'source_type'       => 'stock_in',
-                    'created_by'        => $userId,
-                    'transaction_date'  => $data['movement_date'] ?? today(),
+                    'item_id'          => $data['item_id'],
+                    'warehouse_id'     => $data['warehouse_id'],
+                    'purchase_price'   => $newPrice,
+                    'avg_price_before' => $oldAvg,
+                    'avg_price_after'  => $newAvg,
+                    'qty_received'     => $qty,
+                    'reference_no'     => $data['po_number'] ?? null,
+                    'source_type'      => 'stock_in',
+                    'created_by'       => $userId,
+                    'transaction_date' => $data['movement_date'] ?? today(),
                 ]);
             }
 
@@ -60,18 +57,21 @@ class StockService
             $itemStock->last_updated = now();
             $itemStock->save();
 
+            // ── Low stock check ──────────────────────────────────────────────
+            $this->lowStockAlert->checkAndAlert($data['warehouse_id'], $data['item_id']);
+
             return $this->createMovement([
-                'type' => 'in',
-                'item_id' => $data['item_id'],
+                'type'           => 'in',
+                'item_id'        => $data['item_id'],
                 'to_warehouse_id' => $data['warehouse_id'],
-                'qty' => $qty,
-                'qty_before' => $qtyBefore,
-                'qty_after' => $itemStock->qty,
-                'price' => $data['price'] ?? 0,
-                'po_number' => $data['po_number'] ?? null,
+                'qty'            => $qty,
+                'qty_before'     => $qtyBefore,
+                'qty_after'      => $itemStock->qty,
+                'price'          => $data['price'] ?? 0,
+                'po_number'      => $data['po_number'] ?? null,
                 'invoice_number' => $data['invoice_number'] ?? null,
-                'notes' => $data['notes'] ?? null,
-                'movement_date' => $data['movement_date'] ?? today(),
+                'notes'          => $data['notes'] ?? null,
+                'movement_date'  => $data['movement_date'] ?? today(),
             ], $userId);
         });
     }
@@ -86,7 +86,6 @@ class StockService
             $qtyBefore = (float) $itemStock->qty;
             $qty = (float) $data['qty'];
 
-            // Prevent minus stock
             if ($qtyBefore < $qty) {
                 throw ValidationException::withMessages([
                     'qty' => "Stok tidak cukup. Stok tersedia: {$qtyBefore}, diminta: {$qty}",
@@ -97,23 +96,26 @@ class StockService
             $itemStock->last_updated = now();
             $itemStock->save();
 
+            // ── Low stock check ──────────────────────────────────────────────
+            $this->lowStockAlert->checkAndAlert($data['warehouse_id'], $data['item_id']);
+
             return $this->createMovement([
-                'type' => 'out',
-                'item_id' => $data['item_id'],
+                'type'             => 'out',
+                'item_id'          => $data['item_id'],
                 'from_warehouse_id' => $data['warehouse_id'],
-                'qty' => $qty,
-                'qty_before' => $qtyBefore,
-                'qty_after' => $itemStock->qty,
-                'unit_code' => $data['unit_code'] ?? null,
-                'unit_type' => $data['unit_type'] ?? null,
-                'hm_km' => $data['hm_km'] ?? null,
-                'po_number' => $data['po_number'] ?? null,
-                'mechanic' => $data['mechanic'] ?? null,
-                'site_name' => $data['site_name'] ?? null,
-                'notes' => $data['notes'] ?? null,
-                'movement_date' => $data['movement_date'] ?? today(),
-                'moveable_type' => $data['moveable_type'] ?? 'manual',
-                'moveable_id' => $data['moveable_id'] ?? 0,
+                'qty'              => $qty,
+                'qty_before'       => $qtyBefore,
+                'qty_after'        => $itemStock->qty,
+                'unit_code'        => $data['unit_code'] ?? null,
+                'unit_type'        => $data['unit_type'] ?? null,
+                'hm_km'            => $data['hm_km'] ?? null,
+                'po_number'        => $data['po_number'] ?? null,
+                'mechanic'         => $data['mechanic'] ?? null,
+                'site_name'        => $data['site_name'] ?? null,
+                'notes'            => $data['notes'] ?? null,
+                'movement_date'    => $data['movement_date'] ?? today(),
+                'moveable_type'    => $data['moveable_type'] ?? 'manual',
+                'moveable_id'      => $data['moveable_id'] ?? 0,
             ], $userId);
         });
     }
@@ -128,7 +130,6 @@ class StockService
             $qtyBeforeFrom = (float) $fromStock->qty;
             $qty = (float) $data['qty'];
 
-            // Validate stock availability
             $available = $qtyBeforeFrom - (float) $fromStock->qty_reserved;
             if ($available < $qty) {
                 throw ValidationException::withMessages([
@@ -136,40 +137,41 @@ class StockService
                 ]);
             }
 
-            // Deduct from source
             $fromStock->qty -= $qty;
             $fromStock->qty_reserved = max(0, $fromStock->qty_reserved - $qty);
             $fromStock->last_updated = now();
             $fromStock->save();
 
-            // Add to destination
             $toStock = $this->getOrCreateStock($data['item_id'], $data['to_warehouse_id']);
             $qtyBeforeTo = (float) $toStock->qty;
             $toStock->qty += $qty;
             $toStock->last_updated = now();
             $toStock->save();
 
+            // ── Low stock check pada gudang asal ─────────────────────────────
+            $this->lowStockAlert->checkAndAlert($data['from_warehouse_id'], $data['item_id']);
+
             $baseData = [
-                'item_id' => $data['item_id'],
+                'item_id'          => $data['item_id'],
                 'from_warehouse_id' => $data['from_warehouse_id'],
-                'to_warehouse_id' => $data['to_warehouse_id'],
-                'qty' => $qty,
-                'notes' => $data['notes'] ?? null,
-                'movement_date' => $data['movement_date'] ?? today(),
-                'moveable_type' => $data['moveable_type'] ?? null,
-                'moveable_id' => $data['moveable_id'] ?? null,
+                'to_warehouse_id'  => $data['to_warehouse_id'],
+                'qty'              => $qty,
+                'notes'            => $data['notes'] ?? null,
+                'movement_date'    => $data['movement_date'] ?? today(),
+                'moveable_type'    => $data['moveable_type'] ?? null,
+                'moveable_id'      => $data['moveable_id'] ?? null,
             ];
 
             $outMovement = $this->createMovement(array_merge($baseData, [
-                'type' => 'transfer_out',
+                'type'       => 'transfer_out',
                 'qty_before' => $qtyBeforeFrom,
-                'qty_after' => $fromStock->qty,
+                'qty_after'  => $fromStock->qty,
             ]), $userId);
 
             $inMovement = $this->createMovement(array_merge($baseData, [
-                'type' => 'transfer_in',
+                'type'       => 'transfer_in',
                 'qty_before' => $qtyBeforeTo,
-                'qty_after' => $toStock->qty,
+                'qty_after'  => $toStock->qty,
             ]), $userId);
 
             return ['out' => $outMovement, 'in' => $inMovement];
@@ -177,7 +179,7 @@ class StockService
     }
 
     /**
-     * Reserve stock for approved MR (prevent over-commitment)
+     * Reserve stock for approved MR
      */
     public function reserveStock(int $itemId, int $warehouseId, float $qty): void
     {
@@ -195,7 +197,7 @@ class StockService
     }
 
     /**
-     * Release reserved stock (when MR rejected/cancelled)
+     * Release reserved stock
      */
     public function releaseReserve(int $itemId, int $warehouseId, float $qty): void
     {
@@ -216,17 +218,58 @@ class StockService
             $stock->last_updated = now();
             $stock->save();
 
+            // ── Low stock check ──────────────────────────────────────────────
+            $this->lowStockAlert->checkAndAlert($warehouseId, $itemId);
+
             return $this->createMovement([
-                'type' => 'opname',
-                'item_id' => $itemId,
+                'type'             => 'opname',
+                'item_id'          => $itemId,
                 'from_warehouse_id' => $warehouseId,
-                'qty' => abs($newQty - $qtyBefore),
-                'qty_before' => $qtyBefore,
-                'qty_after' => $newQty,
-                'notes' => $notes,
-                'movement_date' => today(),
+                'qty'              => abs($newQty - $qtyBefore),
+                'qty_before'       => $qtyBefore,
+                'qty_after'        => $newQty,
+                'notes'            => $notes,
+                'movement_date'    => today(),
             ], $userId);
         });
+    }
+
+    /**
+     * Penyesuaian stok dari Stok Opname
+     */
+    public function adjustment(array $data, int $userId): StockMovement
+    {
+        $itemStock = ItemStock::firstOrCreate(
+            ['item_id' => $data['item_id'], 'warehouse_id' => $data['warehouse_id']],
+            ['qty' => 0, 'avg_price' => 0]
+        );
+
+        $qtyBefore = (float) $itemStock->qty;
+        $qty       = (float) $data['qty'];
+        $isIn      = $data['type'] === 'in';
+        $qtyAfter  = $isIn ? $qtyBefore + $qty : $qtyBefore - $qty;
+
+        $itemStock->update(['qty' => $qtyAfter, 'last_updated' => now()]);
+
+        // ── Low stock check ──────────────────────────────────────────────────
+        $this->lowStockAlert->checkAndAlert($data['warehouse_id'], $data['item_id']);
+
+        return StockMovement::create([
+            'reference_no'      => $data['reference_no'],
+            'type'              => 'adjustment',
+            'item_id'           => $data['item_id'],
+            'to_warehouse_id'   => $isIn  ? $data['warehouse_id'] : null,
+            'from_warehouse_id' => !$isIn ? $data['warehouse_id'] : null,
+            'qty'               => $isIn ? $qty : -$qty,
+            'qty_before'        => $qtyBefore,
+            'qty_after'         => $qtyAfter,
+            'price'             => 0,
+            'notes'             => $data['notes'],
+            'movement_date'     => $data['movement_date'],
+            'created_by'        => $userId,
+            'moveable_type'     => \App\Models\StokOpname::class,
+            'moveable_id'       => 0,
+        ]);
     }
 
     /**
@@ -246,14 +289,14 @@ class StockService
     private function createMovement(array $data, int $userId): StockMovement
     {
         $prefix = match($data['type']) {
-            'in' => 'IN',
-            'out' => 'OUT',
+            'in'                           => 'IN',
+            'out'                          => 'OUT',
             'transfer_out', 'transfer_in' => 'TRF',
-            'adjustment', 'opname' => 'ADJ',
-            default => 'MOV',
+            'adjustment', 'opname'         => 'ADJ',
+            default                        => 'MOV',
         };
 
-        $dateStr = now()->format('Ymd');
+        $dateStr    = now()->format('Ymd');
         $prefixFull = $prefix . '-' . $dateStr . '-';
 
         $lastRef = StockMovement::lockForUpdate()
@@ -262,11 +305,11 @@ class StockService
             ->value('reference_no');
 
         $lastNumber = $lastRef ? (int) substr($lastRef, strlen($prefixFull)) : 0;
-        $refNo = $prefixFull . str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
+        $refNo      = $prefixFull . str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
 
         return StockMovement::create(array_merge($data, [
             'reference_no' => $refNo,
-            'created_by' => $userId,
+            'created_by'   => $userId,
         ]));
     }
 
@@ -280,47 +323,10 @@ class StockService
             ->get();
 
         return [
-            'total_items' => $stocks->count(),
-            'total_value' => $stocks->sum(fn($s) => $s->qty * $s->item->price),
+            'total_items'    => $stocks->count(),
+            'total_value'    => $stocks->sum(fn($s) => $s->qty * $s->item->price),
             'critical_items' => $stocks->filter(fn($s) => $s->isCritical())->count(),
-            'minus_items' => $stocks->filter(fn($s) => $s->isMinus())->count(),
+            'minus_items'    => $stocks->filter(fn($s) => $s->isMinus())->count(),
         ];
-    }
-
-    /**
-     * Penyesuaian stok dari Stok Opname (adjustment)
-     * $data harus berisi: item_id, warehouse_id, qty, type ('in'|'out'), notes, movement_date, reference_no
-     */
-    public function adjustment(array $data, int $userId): StockMovement
-    {
-        $itemStock = ItemStock::firstOrCreate(
-            ['item_id' => $data['item_id'], 'warehouse_id' => $data['warehouse_id']],
-            ['qty' => 0, 'avg_price' => 0]
-        );
-
-        $qtyBefore = (float) $itemStock->qty;
-        $qty       = (float) $data['qty'];
-        $isIn      = $data['type'] === 'in';
-
-        $qtyAfter  = $isIn ? $qtyBefore + $qty : $qtyBefore - $qty;
-
-        $itemStock->update(['qty' => $qtyAfter, 'last_updated' => now()]);
-
-        return StockMovement::create([
-            'reference_no'      => $data['reference_no'],
-            'type'              => 'adjustment',
-            'item_id'           => $data['item_id'],
-            'to_warehouse_id'   => $isIn  ? $data['warehouse_id'] : null,
-            'from_warehouse_id' => !$isIn ? $data['warehouse_id'] : null,
-            'qty'               => $isIn ? $qty : -$qty,
-            'qty_before'        => $qtyBefore,
-            'qty_after'         => $qtyAfter,
-            'price'             => 0,
-            'notes'             => $data['notes'],
-            'movement_date'     => $data['movement_date'],
-            'created_by'        => $userId,
-            'moveable_type'     => \App\Models\StokOpname::class,
-            'moveable_id'       => 0,
-        ]);
     }
 }

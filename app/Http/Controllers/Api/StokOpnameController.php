@@ -187,13 +187,13 @@ class StokOpnameController extends Controller
         DB::transaction(function () use ($stokOpname, $request) {
             $stokOpname->load('items.item');
 
-            $itemIndex = 1;
+            $adjIndex = 1;
             foreach ($stokOpname->items as $row) {
                 $selisih = (float) $row->qty_fisik - (float) $row->qty_sistem;
-                if ($selisih == 0) { $itemIndex++; continue; }
+                if ($selisih == 0) continue;
 
-                // Reference unik per item: ADJ-20260427-0001-001
-                $refNo = $stokOpname->nomor . '-' . str_pad($itemIndex, 3, '0', STR_PAD_LEFT);
+                // Reference unik per item: ADJ-20260427-0001-001, -002, dst
+                $refNo = $stokOpname->nomor . '-' . str_pad($adjIndex, 3, '0', STR_PAD_LEFT);
 
                 // Terapkan penyesuaian stok via StockService
                 $this->stockService->adjustment([
@@ -205,7 +205,7 @@ class StokOpnameController extends Controller
                     'movement_date'  => $stokOpname->tanggal_opname->format('Y-m-d'),
                     'reference_no'   => $refNo,
                 ], $request->user()->id);
-                $itemIndex++;
+                $adjIndex++;
             }
 
             $stokOpname->update([
