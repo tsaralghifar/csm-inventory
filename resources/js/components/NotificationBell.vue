@@ -2,8 +2,8 @@
   <!-- Bell icon dengan badge unread count -->
   <div class="notification-bell position-relative" ref="bellRef">
     <button
-      class="btn btn-link p-1 text-white position-relative"
-      style="font-size:1.25rem; line-height:1;"
+      class="btn btn-link p-1 position-relative"
+      style="color: var(--csm-primary, #1a3a5c); font-size:1.25rem; line-height:1;"
       @click="toggleDropdown"
       :aria-label="`${unreadCount} notifikasi belum dibaca`"
     >

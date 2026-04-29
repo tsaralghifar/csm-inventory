@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WarehouseController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\SuratJalanController;
 use App\Models\Category;
 use App\Models\DeliveryOrder;
 use App\Models\Employee;
@@ -158,10 +159,23 @@ Route::middleware(['auth:sanctum', 'api.limit:standard'])->group(function () {
     Route::post('/bon-pengeluaran/{bonPengeluaran}/issue', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'issue']);
 
     // Surat Jalan
-    Route::get('/surat-jalan', [\App\Http\Controllers\Api\SuratJalanController::class, 'index']);
-    Route::post('/surat-jalan', [\App\Http\Controllers\Api\SuratJalanController::class, 'store']);
-    Route::get('/surat-jalan/{suratJalan}', [\App\Http\Controllers\Api\SuratJalanController::class, 'show']);
-    Route::post('/surat-jalan/{suratJalan}/receive', [\App\Http\Controllers\Api\SuratJalanController::class, 'receive']);
+    
+    Route::prefix('surat-jalan')->group(function () {
+        Route::get('/', [SuratJalanController::class, 'index']);
+        Route::post('/', [SuratJalanController::class, 'store']);
+
+        // Endpoint khusus harus didaftarkan SEBELUM /{suratJalan} agar tidak tertangkap sebagai ID
+        // GET /api/surat-jalan/po/{po}/remaining
+        Route::get('/po/{po}/remaining', [SuratJalanController::class, 'remaining']);
+
+        Route::get('/{suratJalan}', [SuratJalanController::class, 'show']);
+        Route::post('/{suratJalan}/receive', [SuratJalanController::class, 'receive']);
+    });
+
+    // Route::get('/surat-jalan', [\App\Http\Controllers\Api\SuratJalanController::class, 'index']);
+    // Route::post('/surat-jalan', [\App\Http\Controllers\Api\SuratJalanController::class, 'store']);
+    // Route::get('/surat-jalan/{suratJalan}', [\App\Http\Controllers\Api\SuratJalanController::class, 'show']);
+    // Route::post('/surat-jalan/{suratJalan}/receive', [\App\Http\Controllers\Api\SuratJalanController::class, 'receive']);
 
     // Permintaan Material
     Route::get('/permintaan-material', [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'index']);

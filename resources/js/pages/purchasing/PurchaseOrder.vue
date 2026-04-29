@@ -692,6 +692,7 @@ async function openSJModal(po) {
       vehicle_plate: '',
       notes: '',
       items: res.data.data.items.map(i => ({
+        purchase_order_item_id: i.id,
         item_id: i.item_id ?? null,
         item: i.item ?? null,
         nama_barang: i.nama_barang,
@@ -722,7 +723,13 @@ async function saveSJ() {
       vehicle_plate: sjForm.value.vehicle_plate,
       received_date: sjForm.value.received_date,
       notes: sjForm.value.notes,
-      items: sjForm.value.items,
+      items: sjForm.value.items.map(i => ({
+        purchase_order_item_id: i.purchase_order_item_id,
+        item_id: i.item_id ?? null,
+        qty_received: i.qty_received,
+        masuk_stok: i.masuk_stok ?? true,
+        keterangan: i.keterangan ?? null,
+      })),
     })
     toast.success('Surat Jalan berhasil dibuat')
     Modal.getInstance('#modalSJFromPO')?.hide()

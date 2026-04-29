@@ -20,8 +20,28 @@ class PurchaseOrderController extends Controller
             ->withCount(['items', 'suratJalan'])
             ->orderBy('created_at', 'desc');
 
-        if ($request->status)    $query->where('status', $request->status);
-        if ($request->search)    $query->where('po_number', 'ilike', "%{$request->search}%");
+        if ($request->status) {
+            $statuses = array_filter(array_map('trim', explode(',', $request->status)));
+            count($statuses) > 1
+                ? $query->whereIn('status', $statuses)
+                : $query->where('status', $statuses[0]);
+        }
+
+        // Filter khusus untuk pencarian PO yang belum selesai diterima
+        // Digunakan oleh form Terima Barang Baru: exclude_delivery_completed=1
+        if ($request->exclude_delivery_completed) {
+            $query->where(function ($q) {
+                $q->whereNull('delivery_status')
+                  ->orWhere('delivery_status', '!=', 'completed');
+            })->whereNotIn('status', ['draft', 'cancelled']);
+        }
+        if ($request->search) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('po_number', 'ilike', "%{$search}%")
+                  ->orWhere('vendor_name', 'ilike', "%{$search}%");
+            });
+        }
         if ($request->date_from) $query->whereDate('created_at', '>=', $request->date_from);
         if ($request->date_to)   $query->whereDate('created_at', '<=', $request->date_to);
 
