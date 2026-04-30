@@ -35,7 +35,7 @@ class DashboardController extends Controller
             ->count();
 
         // PM yang butuh tindak lanjut segera (belum selesai diproses)
-        $pmStatuses = ['approved', 'manager_approved'];
+        $pmStatuses = ['approved', 'manager_approved', 'pending_purchasing'];
         $pendingPM = PermintaanMaterial::whereIn('warehouse_id', $warehouseIds)
             ->whereIn('status', $pmStatuses)
             ->count();

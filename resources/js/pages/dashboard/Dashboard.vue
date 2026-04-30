@@ -131,11 +131,14 @@
                     <td><small>{{ mr.warehouse?.name || '-' }}</small></td>
                     <td><small>{{ mr.requester?.name || '-' }}</small></td>
                     <td>
-                      <span class="badge rounded-pill" :class="{
-                        'bg-warning text-dark': ['pending_chief','pending_manager','pending_ho','submitted'].includes(mr.status),
-                        'bg-primary': ['approved','manager_approved'].includes(mr.status),
-                        'bg-info text-dark': ['purchasing','partial_ordered'].includes(mr.status),
-                      }">{{ pmStatusLabel(mr.status) }}</span>
+                      <span class="badge rounded-pill"
+                        :class="{
+                          'bg-warning text-dark': ['pending_chief','pending_manager','pending_ho','submitted'].includes(mr.status),
+                          'bg-primary': ['approved','manager_approved'].includes(mr.status),
+                          'bg-info text-dark': ['purchasing','partial_ordered'].includes(mr.status),
+                        }"
+                        :style="mr.status === 'pending_purchasing' ? 'background:#7c3aed;color:#fff' : ''"
+                      >{{ pmStatusLabel(mr.status) }}</span>
                     </td>
                     <td><small>{{ $formatDate(mr.created_at) }}</small></td>
                   </tr>
@@ -340,6 +343,7 @@ const { listenStok, stopStok } = useRealtime()
 const pmStatusLabel = (s) => ({
   draft: "Draft", pending_chief: "Menunggu Chief", pending_manager: "Menunggu Manager",
   pending_ho: "Menunggu HO", manager_approved: "Disetujui Manager", approved: "Disetujui HO",
+  pending_purchasing: "Menunggu Pengajuan PO",
   purchasing: "Proses Purchasing", partial_ordered: "Sebagian PO", submitted: "Submitted",
   bon_pengeluaran: "Bon Pengeluaran", completed: "Selesai"
 }[s] || s)

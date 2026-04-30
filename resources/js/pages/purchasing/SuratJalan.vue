@@ -129,7 +129,10 @@
                 />
                 <span class="input-group-text"><i class="bi bi-search"></i></span>
               </div>
-              <div v-if="poList.length" class="border rounded mt-1" style="max-height:220px;overflow-y:auto;">
+              <div v-if="poSearching" class="text-center py-3 text-muted small">
+                <div class="csm-spinner sm me-1"></div> Memuat daftar PO...
+              </div>
+              <div v-else-if="poList.length" class="border rounded mt-1" style="max-height:280px;overflow-y:auto;">
                 <div
                   v-for="po in poList"
                   :key="po.id"
@@ -140,7 +143,13 @@
                 >
                   <div>
                     <div class="fw-semibold small" style="color:#1a3a5c;">{{ po.po_number }}</div>
-                    <div class="text-muted" style="font-size:0.75rem;">{{ po.vendor_name }} · {{ po.warehouse?.name }}</div>
+                    <div class="text-muted" style="font-size:0.75rem;">
+                      {{ po.vendor_name }} · {{ po.warehouse?.name }}
+                    </div>
+                    <div class="text-muted" style="font-size:0.72rem;">
+                      {{ po.items_count ?? po.items?.length ?? 0 }} item
+                      <span v-if="po.expected_date"> · Est. tiba: {{ $formatDate(po.expected_date) }}</span>
+                    </div>
                   </div>
                   <div class="d-flex align-items-center gap-2">
                     <span class="badge" :class="deliveryStatusClass(po.delivery_status)">
@@ -153,7 +162,9 @@
                   </div>
                 </div>
               </div>
-              <div v-if="poSearching" class="text-center py-2 text-muted small"><div class="csm-spinner sm me-1"></div> Mencari PO...</div>
+              <div v-else-if="!poSearching" class="text-center py-3 text-muted small border rounded mt-1">
+                Tidak ada PO yang menunggu penerimaan barang
+              </div>
               <div class="form-text">Hanya PO dengan status "Dikirim ke Vendor" atau "Sebagian Diterima" yang dapat dipilih.</div>
             </div>
 
@@ -519,6 +530,7 @@ async function openDetail(sj) {
 // ── Form TTB ────────────────────────────────────────────────────────────────
 function openFormTTB() {
   resetFormTTB()
+  searchPO()
   new Modal('#modalFormTTB').show()
 }
 
@@ -544,14 +556,13 @@ function debouncedSearchPO() {
 }
 
 async function searchPO() {
-  if (!poSearch.value.trim()) { poList.value = []; return }
   poSearching.value = true
   try {
     const res = await axios.get('/purchase-orders', {
       params: {
-        search: poSearch.value,
+        search: poSearch.value.trim() || undefined,
         exclude_delivery_completed: 1,
-        per_page: 10,
+        per_page: 15,
       },
     })
     poList.value = res.data.data || []
@@ -673,42 +684,19 @@ function printSJ(sj) {
   const fmtD  = (v) => v ? new Date(v).toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' }) : '-'
   const poNum = sj.purchase_order?.po_number || '-'
 
-  // ── Status PO ──────────────────────────────────────────────────────────────
-  const delivStatus = sj.purchase_order?.delivery_status
-  const poStatusMap = {
-    completed : { label: '✓ Selesai — Semua barang sudah diterima',    bg: '#16a34a', color: '#fff' },
-    partial   : { label: '⏳ Sebagian Diterima — Masih ada sisa barang', bg: '#f59e0b', color: '#fff' },
-    null      : { label: '○ Belum Diterima',                            bg: '#e2e8f0', color: '#64748b' },
-  }
-  const poSt = poStatusMap[delivStatus] ?? poStatusMap[null]
-
-  // ── Baris item tabel ───────────────────────────────────────────────────────
-  const rows = (sj.items || []).map((item, i) => {
-    const qtyPO       = parseFloat(item.qty_ordered  || 0)
-    const qtyTerima   = parseFloat(item.qty_received || 0)
-    // qty_remaining di item TTB ini saja (bukan sisa global PO)
-    // Tampilkan status item: Sudah Lengkap jika qtyTerima >= qtyPO
-    const isLengkap   = qtyTerima >= qtyPO
-    const itemStatus  = isLengkap
-      ? '<span style="background:#16a34a;color:#fff;padding:2px 8px;border-radius:12px;font-size:7.5pt;font-weight:700">✓ Lengkap</span>'
-      : '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:12px;font-size:7.5pt;font-weight:700">Sebagian</span>'
-    const sisaQty     = Math.max(0, qtyPO - qtyTerima)
-    const sisaColor   = sisaQty > 0 ? '#f59e0b' : '#16a34a'
-
-    return `<tr style="background:${i % 2 ? '#f8fafc' : '#fff'}">
+  const rows = (sj.items || []).map((item, i) =>
+    `<tr style="background:${i % 2 ? '#f8fafc' : '#fff'}">
       <td style="text-align:center;border:1px solid #e2e8f0;padding:6px 8px;color:#64748b">${i+1}</td>
       <td style="border:1px solid #e2e8f0;padding:6px 8px;font-family:monospace;font-weight:700;color:#1a3a5c;font-size:9pt">${item.item?.part_number || '-'}</td>
       <td style="border:1px solid #e2e8f0;padding:6px 10px;font-weight:600;color:#1f2937">${item.nama_barang || '-'}</td>
-      <td style="text-align:center;border:1px solid #e2e8f0;padding:6px 8px;color:#64748b">${qtyPO}</td>
-      <td style="text-align:center;border:1px solid #e2e8f0;padding:6px 8px;font-weight:700;color:#16a34a">${qtyTerima}</td>
-      <td style="text-align:center;border:1px solid #e2e8f0;padding:6px 8px;font-weight:600;color:${sisaColor}">${sisaQty}</td>
+      <td style="text-align:center;border:1px solid #e2e8f0;padding:6px 8px;color:#64748b">${item.qty_ordered || '-'}</td>
+      <td style="text-align:center;border:1px solid #e2e8f0;padding:6px 8px;font-weight:700;color:#16a34a">${item.qty_received || '-'}</td>
       <td style="text-align:center;border:1px solid #e2e8f0;padding:6px 8px">${item.satuan || '-'}</td>
-      <td style="text-align:center;border:1px solid #e2e8f0;padding:6px 8px">${itemStatus}</td>
       <td style="text-align:center;border:1px solid #e2e8f0;padding:6px 8px">${item.masuk_stok
         ? '<span style="background:#16a34a;color:#fff;padding:2px 8px;border-radius:12px;font-size:8pt;font-weight:700">✓ Ya</span>'
         : '<span style="background:#6b7280;color:#fff;padding:2px 8px;border-radius:12px;font-size:8pt">Tidak</span>'}</td>
     </tr>`
-  }).join('')
+  ).join('')
 
   const html = `<!DOCTYPE html><html>
   <head><meta charset="UTF-8"/><title>TTP-${sj.sj_number}</title>
@@ -723,7 +711,6 @@ function printSJ(sj) {
     .ititle{font-size:8pt;font-weight:700;color:#1a3a5c;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;padding-bottom:4px;border-bottom:2px solid #e8edf4}
     .irow{display:flex;margin-bottom:5px;font-size:9pt}
     .ilbl{color:#64748b;width:140px;flex-shrink:0}.ival{font-weight:600;color:#1a3a5c}.ival2{color:#374151}
-    .po-status-bar{margin-top:10px;padding:8px 16px;border-radius:0 0 6px 6px;font-size:9pt;font-weight:700;display:flex;align-items:center;gap:10px}
     table.it{width:100%;border-collapse:collapse;margin-top:14px}
     table.it th{background:#1a3a5c;color:#fff;padding:8px 10px;font-size:9pt;font-weight:700}
     .sgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:24px}
@@ -739,14 +726,7 @@ function printSJ(sj) {
       <span style="font-size:11pt;font-weight:800;background:#fff;color:#16a34a;padding:2px 12px;border-radius:4px">${sj.sj_number}</span>
       <span style="background:#fff;color:#16a34a;padding:2px 10px;border-radius:12px;font-size:8pt;font-weight:700">✓ DITERIMA</span>
     </div>
-
-    <!-- Status PO bar -->
-    <div class="po-status-bar" style="background:${poSt.bg};color:${poSt.color}">
-      <span>Status PO ${poNum}:</span>
-      <span>${poSt.label}</span>
-    </div>
-
-    <div class="igrid" style="border-top:none;margin-top:10px">
+    <div class="igrid">
       <div class="isec">
         <div class="ititle">Informasi Pengiriman</div>
         <div class="irow"><span class="ilbl">No. TTP</span><span class="ival">${sj.sj_number}</span></div>
@@ -764,22 +744,18 @@ function printSJ(sj) {
         ${sj.notes ? `<div class="irow"><span class="ilbl">Catatan</span><span class="ival2">${sj.notes}</span></div>` : ''}
       </div>
     </div>
-
     <table class="it">
       <thead><tr>
-        <th style="text-align:center;width:30px">#</th>
-        <th style="text-align:center;width:100px">Part Number</th>
+        <th style="text-align:center;width:36px">#</th>
+        <th style="text-align:center;width:110px">Part Number</th>
         <th style="text-align:left">Nama Barang</th>
-        <th style="text-align:center;width:60px">Qty PO</th>
-        <th style="text-align:center;width:70px">Qty Terima</th>
-        <th style="text-align:center;width:55px">Sisa</th>
-        <th style="text-align:center;width:55px">Satuan</th>
-        <th style="text-align:center;width:80px">Status Item</th>
-        <th style="text-align:center;width:70px">Masuk Stok</th>
+        <th style="text-align:center;width:65px">Qty PO</th>
+        <th style="text-align:center;width:75px">Qty Terima</th>
+        <th style="text-align:center;width:65px">Satuan</th>
+        <th style="text-align:center;width:75px">Masuk Stok</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-
     <div class="sgrid">
       <div class="sbox"><div class="stitle">Dibuat Oleh</div><div class="sspace"></div><div class="sname">${sj.creator?.name || ''}</div></div>
       <div class="sbox"><div class="stitle">Penerima Barang</div><div class="sspace"></div><div class="sname">${sj.received_by_name || ''}</div></div>
