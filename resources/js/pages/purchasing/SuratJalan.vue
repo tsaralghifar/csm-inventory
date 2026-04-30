@@ -20,8 +20,15 @@
           <div class="col-md-2">
             <select v-model="filters.status" class="form-select form-select-sm" @change="loadData">
               <option value="">Semua Status</option>
-              <option value="received">Diterima</option>
-              <option value="draft">Draft</option>
+              <optgroup label="Status TTB">
+                <option value="received">TTB Diterima</option>
+                <option value="draft">TTB Draft</option>
+              </optgroup>
+              <optgroup label="Status PO">
+                <option value="po_null">Belum Diterima</option>
+                <option value="po_partial">Sebagian Diterima</option>
+                <option value="po_completed">Selesai</option>
+              </optgroup>
             </select>
           </div>
           <div class="col-md-2">
@@ -501,9 +508,23 @@ onUnmounted(() => stopSJ())
 async function loadData() {
   loading.value = true
   try {
-    const res = await axios.get('/surat-jalan', {
-      params: { ...filters.value, page: meta.value.page, per_page: 15 },
-    })
+    // Pisahkan filter status TTB vs delivery_status PO
+    const statusVal = filters.value.status
+    const params = {
+      search:    filters.value.search,
+      date_from: filters.value.date_from,
+      date_to:   filters.value.date_to,
+      page:      meta.value.page,
+      per_page:  15,
+    }
+    if (statusVal.startsWith('po_')) {
+      // po_null, po_partial, po_completed → delivery_status filter
+      const dsMap = { po_null: 'null', po_partial: 'partial', po_completed: 'completed' }
+      params.delivery_status = dsMap[statusVal]
+    } else if (statusVal) {
+      params.status = statusVal
+    }
+    const res = await axios.get('/surat-jalan', { params })
     list.value = res.data.data
     meta.value = res.data.meta
   } catch {

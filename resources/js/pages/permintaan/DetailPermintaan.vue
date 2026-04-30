@@ -1065,17 +1065,9 @@ async function saveBon() {
   if (!bonForm.value.issue_date) return toast.error('Isi tanggal pengeluaran')
   saving.value = true
   try {
-    let stockMap = {}
-    try {
-      const stockRes = await axios.get(`/warehouses/${bonForm.value.warehouse_id}/stocks`, { params: { per_page: 999 } })
-      ;(stockRes.data.data || []).forEach(s => {
-        if (s.item?.name) stockMap[s.item.name.toLowerCase()] = s.item.id
-      })
-    } catch {}
-
     const items = pm.value.items.map(i => ({
       nama_barang: i.nama_barang,
-      item_id: stockMap[i.nama_barang?.toLowerCase()] || null,
+      item_id: i.item_id || null,
       kode_unit: i.kode_unit,
       tipe_unit: i.tipe_unit,
       qty: i.qty,

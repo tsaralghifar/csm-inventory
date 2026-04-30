@@ -124,14 +124,17 @@ class PurchaseOrderController extends Controller
             $subtotal = 0;
             $items = [];
             foreach ($validated['items'] as $item) {
-                $harga = $item['harga_satuan'] ?? 0;
-                $gross = $harga * $item['qty'];
-                $subtotal += $gross;
+                $harga        = $item['harga_satuan'] ?? 0;
+                $itemDiskon   = $item['diskon_persen'] ?? 0;
+                $gross        = $harga * $item['qty'];
+                $itemDiskonAmt= round($gross * $itemDiskon / 100, 2);
+                $net          = $gross - $itemDiskonAmt;
+                $subtotal    += $net;
                 $items[] = array_merge($item, [
                     'harga_satuan'  => $harga,
-                    'diskon_persen' => 0,
-                    'diskon_amount' => 0,
-                    'total_harga'   => $gross,
+                    'diskon_persen' => $itemDiskon,
+                    'diskon_amount' => $itemDiskonAmt,
+                    'total_harga'   => $net,
                 ]);
             }
 

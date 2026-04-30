@@ -246,7 +246,7 @@
             <label class="form-label small fw-semibold">Qty Diterima per Barang</label>
             <div class="table-responsive">
               <table class="table table-sm csm-table mb-0">
-                <thead><tr><th>Part Number</th><th>Nama Barang</th><th class="text-end">Qty PO</th><th style="width:130px">Qty Diterima</th><th>Satuan</th></tr></thead>
+                <thead><tr><th>Part Number</th><th>Nama Barang</th><th class="text-end">Qty PO</th><th class="text-end">Sudah Diterima</th><th class="text-end">Sisa</th><th style="width:130px">Qty Diterima Kini</th><th>Satuan</th></tr></thead>
                 <tbody>
                   <tr v-for="(item, idx) in sjForm.items" :key="idx">
                     <td>
@@ -255,7 +255,9 @@
                     </td>
                     <td class="fw-semibold">{{ item.nama_barang }}</td>
                     <td class="text-end text-muted">{{ item.qty_ordered }}</td>
-                    <td><input v-model="item.qty_received" type="number" class="form-control form-control-sm" min="0" :max="item.qty_ordered" step="0.01" /></td>
+                    <td class="text-end"><span :class="item.qty_received_before > 0 ? 'text-warning fw-semibold' : 'text-muted'">{{ item.qty_received_before }}</span></td>
+                    <td class="text-end text-danger fw-semibold">{{ item.qty_remaining }}</td>
+                    <td><input v-model="item.qty_received" type="number" class="form-control form-control-sm" min="0" :max="item.qty_remaining" step="0.01" /></td>
                     <td>{{ item.satuan }}</td>
                   </tr>
                 </tbody>
@@ -691,19 +693,26 @@ async function openSJModal(po) {
       driver_name: '',
       vehicle_plate: '',
       notes: '',
-      items: res.data.data.items.map(i => ({
-        purchase_order_item_id: i.id,
-        item_id: i.item_id ?? null,
-        item: i.item ?? null,
-        nama_barang: i.nama_barang,
-        kode_unit: i.kode_unit,
-        tipe_unit: i.tipe_unit,
-        qty_ordered: i.qty,
-        qty_received: i.qty,
-        satuan: i.satuan,
-        harga_satuan: i.harga_satuan,
-        keterangan: i.keterangan,
-      }))
+      items: res.data.data.items
+        .filter(i => (parseFloat(i.qty_received) || 0) < parseFloat(i.qty))
+        .map(i => {
+          const remaining = Math.max(0, parseFloat(i.qty) - parseFloat(i.qty_received || 0))
+          return {
+            purchase_order_item_id: i.id,
+            item_id: i.item_id ?? null,
+            item: i.item ?? null,
+            nama_barang: i.nama_barang,
+            kode_unit: i.kode_unit,
+            tipe_unit: i.tipe_unit,
+            qty_ordered: i.qty,
+            qty_received_before: i.qty_received || 0,
+            qty_remaining: remaining,
+            qty_received: remaining,
+            satuan: i.satuan,
+            harga_satuan: i.harga_satuan,
+            keterangan: i.keterangan,
+          }
+        })
     }
     new Modal('#modalSJFromPO').show()
   } catch { toast.error('Gagal memuat data PO') }

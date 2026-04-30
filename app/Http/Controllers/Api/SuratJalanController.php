@@ -45,6 +45,15 @@ class SuratJalanController extends Controller
             $query->where('status', $request->status);
         }
 
+        // Filter berdasarkan delivery_status PO (Belum Diterima / Sebagian / Selesai)
+        if ($request->delivery_status) {
+            if ($request->delivery_status === 'null') {
+                $query->whereHas('purchaseOrder', fn($q) => $q->whereNull('delivery_status'));
+            } else {
+                $query->whereHas('purchaseOrder', fn($q) => $q->where('delivery_status', $request->delivery_status));
+            }
+        }
+
         if ($request->search) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
@@ -140,36 +149,23 @@ class SuratJalanController extends Controller
         return DB::transaction(function () use ($validated, $request) {
             $po = PurchaseOrder::with('items')->findOrFail($validated['purchase_order_id']);
 
-            // FIX: Validasi berdasarkan delivery_status, BUKAN hanya po.status.
-            // PO yang bisa menerima barang:
-            //   - status harus bukan draft/cancelled
-            //   - delivery_status belum 'completed'
+            // Validasi: PO harus sudah dikirim ke vendor (tidak bisa jika masih draft/cancelled)
+            // Juga izinkan status 'completed' jika delivery_status belum selesai (data lama)
             $allowedStatuses = ['sent_to_vendor', 'partial_received', 'completed'];
             if (!in_array($po->status, $allowedStatuses)) {
                 throw ValidationException::withMessages([
                     'purchase_order_id' => 'PO harus berstatus "Dikirim ke Vendor" sebelum dapat menerima barang.',
                 ]);
             }
-
-            // FIX: Cek via delivery_status bukan po.status untuk mendeteksi
-            // apakah semua barang benar-benar sudah diterima.
-            if ($po->delivery_status === 'completed') {
+            if ($po->status === 'completed' && $po->delivery_status === 'completed') {
                 throw ValidationException::withMessages([
                     'purchase_order_id' => 'Semua barang dari PO ini sudah diterima seluruhnya.',
                 ]);
             }
 
-            // Validasi qty_received tidak melebihi sisa per PO item
+            // Validasi qty_received tidak melebihi sisa
             foreach ($validated['items'] as $inputItem) {
                 $poItem    = PurchaseOrderItem::findOrFail($inputItem['purchase_order_item_id']);
-
-                // Pastikan purchase_order_item_id memang milik PO ini
-                if ($poItem->purchase_order_id !== $po->id) {
-                    throw ValidationException::withMessages([
-                        'items' => "Item '{$poItem->nama_barang}' tidak termasuk dalam PO ini.",
-                    ]);
-                }
-
                 $remaining = max(0, $poItem->qty - $poItem->qty_received);
 
                 if ($inputItem['qty_received'] > $remaining) {
@@ -197,12 +193,12 @@ class SuratJalanController extends Controller
             ]);
 
             // Proses setiap item
-            foreach ($validated['items'] as $itemIndex => $inputItem) {
+            foreach ($validated['items'] as $inputItem) {
                 $poItem      = PurchaseOrderItem::findOrFail($inputItem['purchase_order_item_id']);
                 $qtyReceived = (float) $inputItem['qty_received'];
                 $masukStok   = $inputItem['masuk_stok'] ?? true;
 
-                // Simpan item TTB — selalu sertakan purchase_order_item_id
+                // Simpan item TTB
                 SuratJalanItem::create([
                     'surat_jalan_id'          => $sj->id,
                     'purchase_order_item_id'  => $poItem->id,
@@ -222,26 +218,24 @@ class SuratJalanController extends Controller
                 $poItem->increment('qty_received', $qtyReceived);
 
                 // Masukkan ke stok gudang
-                // FIX: reference_no dibuat unik per item dengan suffix index (001, 002, ...)
-                // agar tidak bentrok di unique constraint stock_movements_reference_no_unique
-                // ketika 1 SJ memiliki lebih dari 1 item
-                $refNo = sprintf('%s-%03d', $sj->sj_number, $itemIndex + 1);
-
                 if ($masukStok && $poItem->item_id) {
                     $stock = ItemStock::firstOrCreate(
                         ['item_id' => $poItem->item_id, 'warehouse_id' => $validated['warehouse_id']],
                         ['qty' => 0]
                     );
+                    $qtyBefore = (float) $stock->qty;
                     $stock->increment('qty', $qtyReceived);
+                    $qtyAfter = $qtyBefore + $qtyReceived;
 
-                    // Catat mutasi stok
-                    // FIX: pakai $refNo (SJ-xxx-001, SJ-xxx-002, ...) agar unik per item
+                    // Catat mutasi stok dengan qty_before dan qty_after
                     StockMovement::create([
                         'item_id'        => $poItem->item_id,
                         'to_warehouse_id'=> $validated['warehouse_id'],
                         'type'           => 'in',
                         'qty'            => $qtyReceived,
-                        'reference_no'   => $refNo,
+                        'qty_before'     => $qtyBefore,
+                        'qty_after'      => $qtyAfter,
+                        'reference_no'   => $sj->sj_number,
                         'notes'          => "Penerimaan dari PO {$po->po_number}",
                         'created_by'     => $request->user()->id,
                         'movement_date'  => $validated['received_date'],
@@ -251,6 +245,9 @@ class SuratJalanController extends Controller
 
             // Update delivery_status PO
             $this->updatePoDeliveryStatus($po);
+
+            // Update status PM jika semua item PO sudah diterima penuh
+            $this->updatePmStatusAfterDelivery($po);
 
             return response()->json([
                 'success' => true,
@@ -263,7 +260,39 @@ class SuratJalanController extends Controller
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
-     * Hitung ulang delivery_status PO berdasarkan qty_received semua item.
+     * Update status PM ke 'completed' jika semua item dari semua PO-nya
+     * sudah diterima seluruhnya.
+     */
+    private function updatePmStatusAfterDelivery(PurchaseOrder $po): void
+    {
+        $pms = $po->permintaanMaterials()->with('items')->get();
+
+        foreach ($pms as $pm) {
+            // Skip jika status PM bukan purchasing/partial_ordered
+            if (!in_array($pm->status, ['purchasing', 'partial_ordered'])) {
+                continue;
+            }
+
+            // Cek apakah semua item PM sudah diterima sepenuhnya
+            $allReceived = true;
+            foreach ($pm->items as $pmItem) {
+                $totalReceived = DB::table('purchase_order_items')
+                    ->where('permintaan_material_item_id', $pmItem->id)
+                    ->sum('qty_received');
+
+                if ((float) $totalReceived < (float) $pmItem->qty) {
+                    $allReceived = false;
+                    break;
+                }
+            }
+
+            if ($allReceived) {
+                $pm->update(['status' => 'completed']);
+            }
+        }
+    }
+
+    /**
      * null     = belum ada penerimaan sama sekali
      * partial  = sebagian item sudah diterima, sebagian belum
      * completed = semua item sudah diterima penuh
@@ -274,10 +303,8 @@ class SuratJalanController extends Controller
         $items = $po->items;
 
         $totalItems    = $items->count();
-        $receivedItems = $items->filter(fn($i) => (float) $i->qty_received > 0)->count();
-        // FIX: Gunakan round() untuk menghindari floating point precision error
-        // misal qty=1.99 dan qty_received=1.99 tapi perbandingan desimal tidak presisi
-        $fullItems     = $items->filter(fn($i) => round((float) $i->qty_received, 4) >= round((float) $i->qty, 4))->count();
+        $receivedItems = $items->filter(fn($i) => $i->qty_received > 0)->count();
+        $fullItems     = $items->filter(fn($i) => $i->qty_received >= $i->qty)->count();
 
         if ($receivedItems === 0) {
             $deliveryStatus = null;

@@ -12,7 +12,7 @@ class PurchaseOrder extends Model
     protected $fillable = [
         'po_number', 'material_request_id', 'permintaan_material_id',
         'warehouse_id', 'created_by',
-        'status', 'vendor_name', 'vendor_contact',
+        'status', 'delivery_status', 'vendor_name', 'vendor_contact',
         'total_amount', 'ppn_percent', 'ppn_amount', 'grand_total',
         'diskon_persen', 'diskon_amount',
         'expected_date', 'notes',
