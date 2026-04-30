@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\FuelLogController;
 use App\Http\Controllers\Api\ItemController;
@@ -34,7 +35,7 @@ use Illuminate\Support\Str;
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('api.limit:strict');
 
 // Protected routes
-Route::middleware(['auth:sanctum', 'api.limit:standard'])->group(function () {
+Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group(function () {
 
     // Auth
     Route::get('/auth/me', [AuthController::class, 'me']);
@@ -275,6 +276,15 @@ Route::middleware(['auth:sanctum', 'api.limit:standard'])->group(function () {
         Route::get('/roles', [UserController::class, 'roles']);
         Route::get('/permissions', [UserController::class, 'permissions']);
         Route::post('/roles/update-permissions', [UserController::class, 'updateRolePermissions']);
+    });
+
+    // ════════════════════════════════════════════════════════════════════════
+    // SECURITY — AUDIT LOG
+    // ════════════════════════════════════════════════════════════════════════
+    Route::prefix('audit-logs')->middleware('role:superuser|admin_ho')->group(function () {
+        Route::get('/',           [AuditLogController::class, 'index']);
+        Route::get('/meta',       [AuditLogController::class, 'meta']);
+        Route::get('/{auditLog}', [AuditLogController::class, 'show']);
     });
 
     // ════════════════════════════════════════════════════════════════════════

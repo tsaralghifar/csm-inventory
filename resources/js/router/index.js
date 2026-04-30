@@ -56,8 +56,9 @@ const routes = [
       { path: 'laporan/payroll', component: () => import('@/pages/laporan/LaporanPayroll.vue'), meta: { title: 'Laporan Payroll', icon: 'bi-file-earmark-person', permission: 'view-payroll' } },
 
       // Admin
-      { path: 'admin/users', component: () => import('@/pages/admin/Users.vue'), meta: { title: 'Manajemen User', icon: 'bi-person-gear', permission: 'manage-users' } },
-      { path: 'admin/roles', component: () => import('@/pages/admin/Roles.vue'), meta: { title: 'Role & Akses', icon: 'bi-key', permission: 'manage-roles' } },
+      { path: 'admin/users',     component: () => import('@/pages/admin/Users.vue'),    meta: { title: 'Manajemen User', icon: 'bi-person-gear',   permission: 'manage-users'    } },
+      { path: 'admin/roles',     component: () => import('@/pages/admin/Roles.vue'),    meta: { title: 'Role & Akses',   icon: 'bi-key',            permission: 'manage-roles'    } },
+      { path: 'admin/audit-log', component: () => import('@/pages/admin/AuditLog.vue'), meta: { title: 'Audit Log',      icon: 'bi-shield-check',   permission: 'view-audit-log'  } },
 
       // Accounting
       { path: 'accounting/supplier',   component: () => import('@/pages/accounting/Supplier.vue'),           meta: { title: 'Supplier',            icon: 'bi-building-check', permission: 'view-accounting' } },

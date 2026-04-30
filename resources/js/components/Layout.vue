@@ -147,13 +147,16 @@
         </template>
 
         <!-- Admin -->
-        <template v-if="can('manage-users')">
+        <template v-if="can('manage-users') || can('view-audit-log')">
           <div class="csm-nav-section">Administrasi</div>
-          <router-link to="/admin/users" class="csm-nav-link" :class="{ active: $route.path === '/admin/users' }">
+          <router-link v-if="can('manage-users')" to="/admin/users" class="csm-nav-link" :class="{ active: $route.path === '/admin/users' }">
             <i class="bi bi-person-gear"></i> Manajemen User
           </router-link>
           <router-link v-if="can('manage-roles')" to="/admin/roles" class="csm-nav-link" :class="{ active: $route.path === '/admin/roles' }">
             <i class="bi bi-key"></i> Role & Hak Akses
+          </router-link>
+          <router-link v-if="can('view-audit-log')" to="/admin/audit-log" class="csm-nav-link" :class="{ active: $route.path === '/admin/audit-log' }">
+            <i class="bi bi-shield-check"></i> Audit Log
           </router-link>
         </template>
       </nav>

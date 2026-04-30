@@ -18,6 +18,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
             // Rate limiter custom — fix untuk error "Target class [api.limit] does not exist"
             'api.limit'          => \App\Http\Middleware\ApiRateLimiter::class,
+
+            // Audit log — catat setiap mutasi (POST/PUT/PATCH/DELETE) ke tabel audit_logs
+            'log.activity'       => \App\Http\Middleware\LogActivity::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

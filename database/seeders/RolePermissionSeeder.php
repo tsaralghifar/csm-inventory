@@ -58,6 +58,8 @@ class RolePermissionSeeder extends Seeder
             'view-reports', 'export-reports',
             // Manajemen User
             'manage-users', 'manage-roles',
+            // Security
+            'view-audit-log',
             // Unit Alat
             'view-units', 'manage-units',
             // Karyawan
@@ -111,6 +113,8 @@ class RolePermissionSeeder extends Seeder
                 // Accounting & Payroll — lihat dan approve saja
                 'view-accounting', 'approve-accounting',
                 'view-payroll', 'approve-payroll',
+                // Security
+                'view-audit-log',
             ],
 
             'admin_site' => [
