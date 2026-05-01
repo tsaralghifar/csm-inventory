@@ -44,8 +44,41 @@ class MaterialRequestService
         if (!in_array($mr->status, ['draft'])) {
             throw ValidationException::withMessages(['status' => 'MR tidak bisa disubmit dari status: ' . $mr->status]);
         }
-        $mr->update(['status' => 'submitted', 'submitted_at' => now()]);
-        return $mr;
+        $nextStatus = $mr->type === 'part' ? 'pending_chief' : 'pending_ho';
+        $mr->update(['status' => $nextStatus, 'submitted_at' => now()]);
+        return $mr->fresh();
+    }
+
+    public function authorizeChief(MaterialRequest $mr, int $userId): MaterialRequest
+    {
+        if ($mr->type !== 'part') {
+            throw ValidationException::withMessages(['type' => 'Hanya MR Part yang perlu otorisasi Chief Mekanik']);
+        }
+        if ($mr->status !== 'pending_chief') {
+            throw ValidationException::withMessages(['status' => 'MR tidak dalam status menunggu Chief Mekanik']);
+        }
+        $mr->update([
+            'status'              => 'pending_manager',
+            'chief_authorized_by' => $userId,
+            'chief_authorized_at' => now(),
+        ]);
+        return $mr->fresh();
+    }
+
+    public function approveManager(MaterialRequest $mr, int $userId): MaterialRequest
+    {
+        if ($mr->type !== 'part') {
+            throw ValidationException::withMessages(['type' => 'Hanya MR Part yang perlu approval Manager']);
+        }
+        if ($mr->status !== 'pending_manager') {
+            throw ValidationException::withMessages(['status' => 'MR tidak dalam status menunggu Manager']);
+        }
+        $mr->update([
+            'status'              => 'manager_approved',
+            'manager_approved_by' => $userId,
+            'manager_approved_at' => now(),
+        ]);
+        return $mr->fresh();
     }
 
     public function approve(MaterialRequest $mr, array $approvedItems, int $userId): MaterialRequest

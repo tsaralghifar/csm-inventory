@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\DashboardService;
 use App\Services\LowStockAlertService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,7 +21,10 @@ use Illuminate\Http\Request;
  */
 class NotificationController extends Controller
 {
-    public function __construct(private LowStockAlertService $alertService) {}
+    public function __construct(
+        private LowStockAlertService $alertService,
+        private DashboardService $dashboardService,
+    ) {}
 
     /**
      * GET /api/notifications
@@ -118,9 +122,6 @@ class NotificationController extends Controller
 
     private function getAccessibleWarehouseIds($user): array
     {
-        if ($user->isSuperuser() || $user->isAdminHO() || $user->hasRole('purchasing') || $user->hasRole('manager')) {
-            return \App\Models\Warehouse::pluck('id')->toArray();
-        }
-        return $user->warehouse_id ? [$user->warehouse_id] : [];
+        return $this->dashboardService->getAccessibleWarehouseIds($user);
     }
 }

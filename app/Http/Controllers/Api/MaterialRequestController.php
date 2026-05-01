@@ -75,11 +75,7 @@ class MaterialRequestController extends Controller
 
     public function submit(Request $request, MaterialRequest $mr)
     {
-        if ($mr->status !== 'draft') {
-            throw ValidationException::withMessages(['status' => 'Hanya MR draft yang bisa disubmit']);
-        }
-        $nextStatus = $mr->type === 'part' ? 'pending_chief' : 'pending_ho';
-        $mr->update(['status' => $nextStatus, 'submitted_at' => now()]);
+        $mr = $this->mrService->submit($mr);
         broadcast(new MaterialRequestUpdated($mr->fresh(), 'submitted'))->toOthers();
         return response()->json(['success' => true, 'data' => $mr,
             'message' => $mr->type === 'part'
@@ -89,17 +85,7 @@ class MaterialRequestController extends Controller
 
     public function authorizeChief(Request $request, MaterialRequest $mr)
     {
-        if ($mr->type !== 'part') {
-            throw ValidationException::withMessages(['type' => 'Hanya MR Part yang perlu otorisasi Chief Mekanik']);
-        }
-        if ($mr->status !== 'pending_chief') {
-            throw ValidationException::withMessages(['status' => 'MR tidak dalam status menunggu Chief Mekanik']);
-        }
-        $mr->update([
-            'status'              => 'pending_manager',
-            'chief_authorized_by' => $request->user()->id,
-            'chief_authorized_at' => now(),
-        ]);
+        $mr = $this->mrService->authorizeChief($mr, $request->user()->id);
         broadcast(new MaterialRequestUpdated($mr->fresh(), 'authorized_chief'))->toOthers();
         return response()->json(['success' => true, 'data' => $mr,
             'message' => 'MR diotorisasi Chief Mekanik, diteruskan ke Manager']);
@@ -107,17 +93,7 @@ class MaterialRequestController extends Controller
 
     public function approveManager(Request $request, MaterialRequest $mr)
     {
-        if ($mr->type !== 'part') {
-            throw ValidationException::withMessages(['type' => 'Hanya MR Part yang perlu approval Manager']);
-        }
-        if ($mr->status !== 'pending_manager') {
-            throw ValidationException::withMessages(['status' => 'MR tidak dalam status menunggu Manager']);
-        }
-        $mr->update([
-            'status'              => 'manager_approved',
-            'manager_approved_by' => $request->user()->id,
-            'manager_approved_at' => now(),
-        ]);
+        $mr = $this->mrService->approveManager($mr, $request->user()->id);
         broadcast(new MaterialRequestUpdated($mr->fresh(), 'approved_manager'))->toOthers();
         return response()->json(['success' => true, 'data' => $mr,
             'message' => 'MR disetujui Manager, silakan cek ketersediaan stok']);

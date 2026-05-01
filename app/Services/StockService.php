@@ -201,9 +201,17 @@ class StockService
      */
     public function releaseReserve(int $itemId, int $warehouseId, float $qty): void
     {
-        $stock = $this->getOrCreateStock($itemId, $warehouseId);
-        $stock->qty_reserved = max(0, (float) $stock->qty_reserved - $qty);
-        $stock->save();
+        DB::transaction(function () use ($itemId, $warehouseId, $qty) {
+            $stock = ItemStock::where('item_id', $itemId)
+                ->where('warehouse_id', $warehouseId)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$stock) return;
+
+            $stock->qty_reserved = max(0, (float) $stock->qty_reserved - $qty);
+            $stock->save();
+        });
     }
 
     /**
@@ -260,7 +268,7 @@ class StockService
             'item_id'           => $data['item_id'],
             'to_warehouse_id'   => $isIn  ? $data['warehouse_id'] : null,
             'from_warehouse_id' => !$isIn ? $data['warehouse_id'] : null,
-            'qty'               => $isIn ? $qty : -$qty,
+            'qty'               => $qty,  // selalu positif — arah ditentukan oleh field type
             'qty_before'        => $qtyBefore,
             'qty_after'         => $qtyAfter,
             'price'             => 0,

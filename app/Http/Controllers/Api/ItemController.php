@@ -3,18 +3,34 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreItemRequest;
+use App\Http\Requests\StockInRequest;
+use App\Http\Requests\StockOutRequest;
+use App\Http\Requests\UpdateItemRequest;
 use App\Models\Item;
-use App\Models\ItemStock;
 use App\Models\ItemPriceHistory;
 use App\Services\StockService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Contoh ItemController yang sudah direfactor:
+ * - Menggunakan Form Request (StoreItemRequest, UpdateItemRequest, dll)
+ * - Menggunakan ApiResponse trait dari base Controller
+ *
+ * Perubahan dari versi lama:
+ *   SEBELUM: $request->validate([...])  → validasi inline di controller
+ *   SESUDAH: StoreItemRequest           → validasi + authorize di class tersendiri
+ *
+ *   SEBELUM: response()->json(['success' => true, 'data' => ...])
+ *   SESUDAH: $this->success($data, 'Pesan')  → format konsisten via trait
+ */
 class ItemController extends Controller
 {
     public function __construct(private StockService $stockService) {}
 
-    public function index(Request $request)
+    public function index(Request $request): JsonResponse
     {
         $query = Item::with('category')->active();
 
@@ -26,150 +42,94 @@ class ItemController extends Controller
 
         $items = $query->orderBy('name')->paginate($request->per_page ?? 20);
 
-        // Hitung simple average price dari item_price_history untuk semua item di halaman ini
-        $itemIds = $items->getCollection()->pluck('id');
-        $avgPrices = \App\Models\ItemPriceHistory::whereIn('item_id', $itemIds)
-            ->select('item_id', \Illuminate\Support\Facades\DB::raw('AVG(purchase_price) as simple_avg'))
+        $itemIds   = $items->getCollection()->pluck('id');
+        $avgPrices = ItemPriceHistory::whereIn('item_id', $itemIds)
+            ->select('item_id', DB::raw('AVG(purchase_price) as simple_avg'))
             ->groupBy('item_id')
             ->pluck('simple_avg', 'item_id');
 
-        // Append stock for specific warehouse if requested
         $items->getCollection()->transform(function ($item) use ($request, $avgPrices) {
-            // Override price dengan simple average dari history
             if ($avgPrices->has($item->id)) {
                 $item->price = round((float) $avgPrices[$item->id], 2);
             }
             if ($request->warehouse_id) {
-                $stock = $item->itemStocks->where('warehouse_id', $request->warehouse_id)->first();
-                $item->current_stock = $stock ? (float) $stock->qty : 0;
-                $item->is_critical = $stock ? $stock->isCritical() : false;
+                $stock                = $item->itemStocks->where('warehouse_id', $request->warehouse_id)->first();
+                $item->current_stock  = $stock ? (float) $stock->qty : 0;
+                $item->is_critical    = $stock ? $stock->isCritical() : false;
             }
             return $item;
         });
 
-        return response()->json([
-            'success' => true,
-            'data' => $items->items(),
-            'meta' => [
-                'total' => $items->total(),
-                'page' => $items->currentPage(),
-                'last_page' => $items->lastPage(),
-            ],
-        ]);
+        // Menggunakan $this->paginated() dari ApiResponse trait
+        return $this->paginated($items);
     }
 
-    public function store(Request $request)
+    public function store(StoreItemRequest $request): JsonResponse
     {
-        $this->authorize('manage-items');
+        // authorize() & validate() sudah otomatis dipanggil oleh StoreItemRequest
+        $item = Item::create($request->validated());
 
-        $validated = $request->validate([
-            'part_number' => 'required|string|max:100|unique:items',
-            'name' => 'required|string|max:255',
-            'category_id' => 'required|exists:categories,id',
-            'brand' => 'nullable|string',
-            'unit' => 'required|string|max:20',
-            'min_stock' => 'required|numeric|min:0',
-            'price' => 'nullable|numeric|min:0',
-            'location_code' => 'nullable|string',
-            'description' => 'nullable|string',
-        ]);
-
-        $item = Item::create($validated);
-        return response()->json(['success' => true, 'data' => $item->load('category'), 'message' => 'Barang berhasil ditambahkan'], 201);
+        // Menggunakan $this->created() dari ApiResponse trait
+        return $this->created($item->load('category'), 'Barang berhasil ditambahkan');
     }
 
-    public function show(Item $item)
+    public function show(Item $item): JsonResponse
     {
         $item->load('category', 'itemStocks.warehouse');
-        return response()->json(['success' => true, 'data' => $item]);
+
+        // Menggunakan $this->success() dari ApiResponse trait
+        return $this->success($item);
     }
 
-    public function update(Request $request, Item $item)
+    public function update(UpdateItemRequest $request, Item $item): JsonResponse
     {
-        $this->authorize('manage-items');
+        $item->update($request->validated());
 
-        $validated = $request->validate([
-            'part_number' => "sometimes|string|max:100|unique:items,part_number,{$item->id}",
-            'name' => 'sometimes|string|max:255',
-            'category_id' => 'sometimes|exists:categories,id',
-            'brand' => 'nullable|string',
-            'unit' => 'sometimes|string|max:20',
-            'min_stock' => 'sometimes|numeric|min:0',
-            'price' => 'nullable|numeric|min:0',
-            'location_code' => 'nullable|string',
-            'description' => 'nullable|string',
-            'is_active' => 'sometimes|boolean',
-        ]);
-
-        $item->update($validated);
-        return response()->json(['success' => true, 'data' => $item->load('category'), 'message' => 'Barang berhasil diperbarui']);
+        return $this->success($item->load('category'), 'Barang berhasil diperbarui');
     }
 
-    public function destroy(Item $item)
+    public function destroy(Item $item): JsonResponse
     {
         $this->authorize('manage-items');
         $item->delete();
-        return response()->json(['success' => true, 'message' => 'Barang berhasil dihapus']);
+
+        // Menggunakan $this->deleted() dari ApiResponse trait
+        return $this->deleted('Barang berhasil dihapus');
     }
 
-    public function stockIn(Request $request, Item $item)
+    public function stockIn(StockInRequest $request, Item $item): JsonResponse
     {
-        $this->authorize('create-stock-in');
-
-        $validated = $request->validate([
-            'warehouse_id' => 'required|exists:warehouses,id',
-            'qty' => 'required|numeric|min:0.01',
-            'price' => 'nullable|numeric|min:0',
-            'po_number' => 'nullable|string',
-            'invoice_number' => 'nullable|string',
-            'notes' => 'nullable|string',
-            'movement_date' => 'required|date',
-        ]);
-
         $movement = $this->stockService->stockIn(
-            array_merge($validated, ['item_id' => $item->id]),
+            array_merge($request->validated(), ['item_id' => $item->id]),
             $request->user()->id
         );
 
-        return response()->json(['success' => true, 'data' => $movement, 'message' => 'Stok berhasil ditambahkan']);
+        return $this->created($movement, 'Stok berhasil ditambahkan');
     }
 
-    public function stockOut(Request $request, Item $item)
+    public function stockOut(StockOutRequest $request, Item $item): JsonResponse
     {
-        $this->authorize('create-stock-out');
-
-        $validated = $request->validate([
-            'warehouse_id' => 'required|exists:warehouses,id',
-            'qty' => 'required|numeric|min:0.01',
-            'unit_code' => 'nullable|string',
-            'unit_type' => 'nullable|string',
-            'hm_km' => 'nullable|numeric',
-            'po_number' => 'nullable|string',
-            'mechanic' => 'nullable|string',
-            'site_name' => 'nullable|string',
-            'notes' => 'nullable|string',
-            'movement_date' => 'required|date',
-        ]);
-
         $movement = $this->stockService->stockOut(
-            array_merge($validated, ['item_id' => $item->id]),
+            array_merge($request->validated(), ['item_id' => $item->id]),
             $request->user()->id
         );
 
-        return response()->json(['success' => true, 'data' => $movement, 'message' => 'Stok keluar berhasil dicatat']);
+        return $this->created($movement, 'Stok keluar berhasil dicatat');
     }
 
-    public function movements(Request $request, Item $item)
+    public function movements(Request $request, Item $item): JsonResponse
     {
         $query = $item->stockMovements()
             ->with(['fromWarehouse', 'toWarehouse', 'creator'])
             ->orderBy('created_at', 'desc');
 
         if ($request->warehouse_id) {
-            $query->where(fn($q) => $q->where('from_warehouse_id', $request->warehouse_id)->orWhere('to_warehouse_id', $request->warehouse_id));
+            $query->where(fn($q) => $q
+                ->where('from_warehouse_id', $request->warehouse_id)
+                ->orWhere('to_warehouse_id', $request->warehouse_id)
+            );
         }
 
-        $movements = $query->paginate(20);
-        return response()->json(['success' => true, 'data' => $movements]);
+        return $this->paginated($query->paginate(20));
     }
 }
