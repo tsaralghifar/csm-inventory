@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\SuratJalanUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\PurchaseOrder;
 use App\Models\SuratJalan;
@@ -104,6 +105,8 @@ class SuratJalanController extends Controller
 
         $sj = $this->suratJalanService->create($validated, $po, $request->user()->id);
 
+        broadcast(new SuratJalanUpdated($sj->fresh(), 'created'))->toOthers();
+
         return response()->json([
             'success' => true,
             'data'    => $sj->load('items.item'),
@@ -120,6 +123,8 @@ class SuratJalanController extends Controller
         ]);
 
         $sj = $this->suratJalanService->markReceived($suratJalan, $validated, $request->user()->id);
+
+        broadcast(new SuratJalanUpdated($sj->fresh(), 'received'))->toOthers();
 
         return response()->json([
             'success' => true,

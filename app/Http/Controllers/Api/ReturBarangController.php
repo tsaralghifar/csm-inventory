@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\ReturBarangUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\ReturBarang;
 use App\Services\ReturBarangService;
@@ -54,6 +55,8 @@ class ReturBarangController extends Controller
 
         $retur = $this->service->store($validated, $request->user()->id);
 
+        broadcast(new ReturBarangUpdated($retur->fresh(), 'created'))->toOthers();
+
         return response()->json([
             'success' => true,
             'data'    => $retur,
@@ -81,6 +84,8 @@ class ReturBarangController extends Controller
     public function confirm(ReturBarang $returBarang, Request $request)
     {
         $retur = $this->service->confirm($returBarang, $request->user()->id);
+
+        broadcast(new ReturBarangUpdated($retur->fresh(), 'confirmed'))->toOthers();
 
         return response()->json([
             'success' => true,

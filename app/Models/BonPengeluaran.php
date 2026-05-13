@@ -16,13 +16,24 @@ class BonPengeluaran extends Model
         'warehouse_id', 'created_by',
         'approved_by', 'approved_at', 'status', 'received_by', 'issue_date', 'notes',
         'unit_code', 'unit_type', 'hm_km', 'mechanic', 'po_number',
+        // konfirmasi mekanik
+        'confirmed_by', 'confirmed_at', 'rejection_reason', 'confirmation_token',
     ];
 
     protected $casts = [
-        'approved_at' => 'datetime',
-        'issue_date'  => 'date',
+        'approved_at'  => 'datetime',
+        'confirmed_at' => 'datetime',
+        'issue_date'   => 'date',
     ];
 
+    /**
+     * Status yang valid untuk Bon Pengeluaran:
+     *   draft                → baru dibuat
+     *   pending_confirmation → menunggu konfirmasi mekanik
+     *   confirmed            → mekanik konfirmasi cocok, siap dikeluarkan
+     *   rejected_by_mechanic → mekanik menolak, perlu direvisi admin
+     *   issued               → sudah dikeluarkan, stok berkurang
+     */
     public function materialRequest()
     {
         return $this->belongsTo(MaterialRequest::class);
@@ -56,10 +67,10 @@ class BonPengeluaran extends Model
     public static function generateNumber(): string
     {
         $date   = now()->format('Ymd');
-        $prefix = "BON-{$date}-";
+        $prefix = 'BON-' . $date . '-';
 
         $last = static::lockForUpdate()
-            ->where('bon_number', 'like', "{$prefix}%")
+            ->where('bon_number', 'like', $prefix . '%')
             ->orderByRaw('CAST(SUBSTRING(bon_number FROM ' . (strlen($prefix) + 1) . ') AS INTEGER) DESC')
             ->value('bon_number');
 

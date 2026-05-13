@@ -355,13 +355,14 @@
             <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
             <button type="button" class="btn btn-warning btn-sm" @click="submitStockOut" :disabled="saving">
               <span v-if="saving" class="csm-spinner me-1"></span>
+              <i class="bi bi-box-arrow-right me-1"></i>
               <span v-if="outItems.some(r => r.needsPO && r.item_id) && outItems.some(r => !r.needsPO && r.item_id)">
-                Simpan Stok Keluar + Buat PO
+                Keluarkan Barang + Ajukan PM
               </span>
               <span v-else-if="outItems.every(r => !r.item_id || r.needsPO)">
-                Buat Purchase Order
+                Keluarkan Barang
               </span>
-              <span v-else>Simpan Stok Keluar</span>
+              <span v-else>Keluarkan Barang</span>
             </button>
           </div>
         </div>
@@ -556,20 +557,13 @@ function filterItems(idx) {
   itemSearchTimers[idx] = setTimeout(async () => {
     if (!hoWarehouseId.value) return
     try {
-      // Cari dari semua master barang, lalu cross-reference stok di gudang ini
-      const [itemsRes, stocksRes] = await Promise.all([
-        axios.get('/items', { params: { search: q, per_page: 15 } }),
-        axios.get(`/warehouses/${hoWarehouseId.value}/stocks`, { params: { search: q, per_page: 15 } }),
-      ])
-      const stockMap = {}
-      for (const s of (stocksRes.data.data || [])) {
-        stockMap[s.item_id] = s.qty
-      }
-      outItems.value[idx].dropResults = (itemsRes.data.data || []).map(item => ({
-        item_id: item.id,
-        item,
-        qty: stockMap[item.id] ?? 0,
-        hasStock: stockMap[item.id] !== undefined,
+      // Hanya tampilkan barang yang ada stoknya di gudang ini
+      const stocksRes = await axios.get(`/warehouses/${hoWarehouseId.value}/stocks`, { params: { search: q, per_page: 20 } })
+      outItems.value[idx].dropResults = (stocksRes.data.data || []).map(s => ({
+        item_id: s.item_id,
+        item: s.item,
+        qty: s.qty,
+        hasStock: parseFloat(s.qty) > 0,
       }))
     } catch { outItems.value[idx].dropResults = [] }
   }, 300)

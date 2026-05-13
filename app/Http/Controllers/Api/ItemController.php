@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\ItemUpdated;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreItemRequest;
 use App\Http\Requests\StockInRequest;
@@ -14,18 +15,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-/**
- * Contoh ItemController yang sudah direfactor:
- * - Menggunakan Form Request (StoreItemRequest, UpdateItemRequest, dll)
- * - Menggunakan ApiResponse trait dari base Controller
- *
- * Perubahan dari versi lama:
- *   SEBELUM: $request->validate([...])  → validasi inline di controller
- *   SESUDAH: StoreItemRequest           → validasi + authorize di class tersendiri
- *
- *   SEBELUM: response()->json(['success' => true, 'data' => ...])
- *   SESUDAH: $this->success($data, 'Pesan')  → format konsisten via trait
- */
 class ItemController extends Controller
 {
     public function __construct(private StockService $stockService) {}
@@ -34,8 +23,8 @@ class ItemController extends Controller
     {
         $query = Item::with('category')->active();
 
-        if ($request->search) $query->search($request->search);
-        if ($request->category_id) $query->where('category_id', $request->category_id);
+        if ($request->search)       $query->search($request->search);
+        if ($request->category_id)  $query->where('category_id', $request->category_id);
         if ($request->warehouse_id) {
             $query->whereHas('itemStocks', fn($q) => $q->where('warehouse_id', $request->warehouse_id)->where('qty', '>', 0));
         }
@@ -53,31 +42,28 @@ class ItemController extends Controller
                 $item->price = round((float) $avgPrices[$item->id], 2);
             }
             if ($request->warehouse_id) {
-                $stock                = $item->itemStocks->where('warehouse_id', $request->warehouse_id)->first();
-                $item->current_stock  = $stock ? (float) $stock->qty : 0;
-                $item->is_critical    = $stock ? $stock->isCritical() : false;
+                $stock               = $item->itemStocks->where('warehouse_id', $request->warehouse_id)->first();
+                $item->current_stock = $stock ? (float) $stock->qty : 0;
+                $item->is_critical   = $stock ? $stock->isCritical() : false;
             }
             return $item;
         });
 
-        // Menggunakan $this->paginated() dari ApiResponse trait
         return $this->paginated($items);
     }
 
     public function store(StoreItemRequest $request): JsonResponse
     {
-        // authorize() & validate() sudah otomatis dipanggil oleh StoreItemRequest
         $item = Item::create($request->validated());
 
-        // Menggunakan $this->created() dari ApiResponse trait
+        broadcast(new ItemUpdated($item->fresh(), 'created'))->toOthers();
+
         return $this->created($item->load('category'), 'Barang berhasil ditambahkan');
     }
 
     public function show(Item $item): JsonResponse
     {
         $item->load('category', 'itemStocks.warehouse');
-
-        // Menggunakan $this->success() dari ApiResponse trait
         return $this->success($item);
     }
 
@@ -85,15 +71,20 @@ class ItemController extends Controller
     {
         $item->update($request->validated());
 
+        broadcast(new ItemUpdated($item->fresh(), 'updated'))->toOthers();
+
         return $this->success($item->load('category'), 'Barang berhasil diperbarui');
     }
 
     public function destroy(Item $item): JsonResponse
     {
         $this->authorize('manage-items');
+
+        $deletedItem = $item->replicate(); // simpan data sebelum dihapus untuk broadcast
         $item->delete();
 
-        // Menggunakan $this->deleted() dari ApiResponse trait
+        broadcast(new ItemUpdated($deletedItem, 'deleted'))->toOthers();
+
         return $this->deleted('Barang berhasil dihapus');
     }
 
@@ -104,6 +95,8 @@ class ItemController extends Controller
             $request->user()->id
         );
 
+        broadcast(new ItemUpdated($item->fresh(), 'stock_in', $request->validated()['warehouse_id'] ?? null))->toOthers();
+
         return $this->created($movement, 'Stok berhasil ditambahkan');
     }
 
@@ -113,6 +106,8 @@ class ItemController extends Controller
             array_merge($request->validated(), ['item_id' => $item->id]),
             $request->user()->id
         );
+
+        broadcast(new ItemUpdated($item->fresh(), 'stock_out', $request->validated()['warehouse_id'] ?? null))->toOthers();
 
         return $this->created($movement, 'Stok keluar berhasil dicatat');
     }

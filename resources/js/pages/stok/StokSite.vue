@@ -603,17 +603,13 @@ function filterItems(idx) {
   itemSearchTimers[idx] = setTimeout(async () => {
     if (!selectedSite.value) return
     try {
-      const [itemsRes, stocksRes] = await Promise.all([
-        axios.get('/items', { params: { search: q, per_page: 15 } }),
-        axios.get(`/warehouses/${selectedSite.value.id}/stocks`, { params: { search: q, per_page: 15 } }),
-      ])
-      const stockMap = {}
-      for (const s of (stocksRes.data.data || [])) stockMap[s.item_id] = s.qty
-      outItems.value[idx].dropResults = (itemsRes.data.data || []).map(item => ({
-        item_id: item.id,
-        item,
-        qty: stockMap[item.id] ?? 0,
-        hasStock: stockMap[item.id] !== undefined,
+      // Hanya tampilkan barang yang ada stoknya di gudang site ini
+      const stocksRes = await axios.get(`/warehouses/${selectedSite.value.id}/stocks`, { params: { search: q, per_page: 20 } })
+      outItems.value[idx].dropResults = (stocksRes.data.data || []).map(s => ({
+        item_id: s.item_id,
+        item: s.item,
+        qty: s.qty,
+        hasStock: parseFloat(s.qty) > 0,
       }))
     } catch { outItems.value[idx].dropResults = [] }
   }, 300)
@@ -762,11 +758,10 @@ async function submitStockOut() {
 
     const messages = []
 
-    // 1. Bon Pengeluaran untuk barang ada stok
+    // 1. Buat Bon Pengeluaran (draft) - menunggu konfirmasi mekanik
     if (stockItems.length) {
       const res = await axios.post('/bon-pengeluaran', {
         ...basePayload,
-        auto_issue: true,
         items: stockItems.map(r => ({
           item_id:     r.item_id,
           nama_barang: r.itemSearch.split(' - ').slice(1).join(' - ') || r.itemSearch,
@@ -775,7 +770,7 @@ async function submitStockOut() {
           keterangan:  null,
         })),
       })
-      messages.push(`✅ Bon ${res.data.data?.bon_number} — ${stockItems.length} barang dikeluarkan`)
+      messages.push(`📋 Bon ${res.data.data?.bon_number} dibuat. Buka menu Bon Pengeluaran untuk konfirmasi mekanik sebelum barang dikeluarkan.`)
     }
 
     // 2. PM otomatis untuk barang stok kosong

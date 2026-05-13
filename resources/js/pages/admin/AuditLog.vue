@@ -130,106 +130,174 @@
       </div>
     </div>
 
-    <!-- Modal Detail -->
-    <div class="modal fade" id="auditDetailModal" tabindex="-1">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content" v-if="selectedLog">
-          <div class="modal-header">
-            <h5 class="modal-title">
-              <i class="bi bi-shield-check me-2"></i>Detail Audit Log #{{ selectedLog.id }}
-            </h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="row g-3 mb-3">
-              <div class="col-md-6">
-                <label class="form-label fw-semibold small text-muted">WAKTU</label>
-                <div>{{ formatDateTime(selectedLog.created_at) }}</div>
+    <!-- ─── Modal Detail (teleport ke body agar tidak terpengaruh z-index parent) ─── -->
+    <Teleport to="body">
+      <div
+        v-if="showModal"
+        class="audit-overlay"
+        @click.self="closeModal"
+      >
+        <div class="audit-modal-dialog">
+          <div class="audit-modal-content" v-if="selectedLog">
+
+            <!-- Modal Header -->
+            <div class="audit-modal-header">
+              <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-shield-check text-primary fs-5"></i>
+                <span class="fw-bold">Detail Audit Log <span class="text-muted">#{{ selectedLog.id }}</span></span>
               </div>
-              <div class="col-md-6">
-                <label class="form-label fw-semibold small text-muted">IP ADDRESS</label>
-                <div class="font-monospace">{{ selectedLog.ip_address || '—' }}</div>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label fw-semibold small text-muted">USER</label>
-                <div>
-                  {{ selectedLog.user_name || '—' }}
-                  <span v-if="selectedLog.user_role" class="badge ms-1" :class="roleClass(selectedLog.user_role)">
-                    {{ selectedLog.user_role }}
-                  </span>
-                </div>
-              </div>
-              <div class="col-md-3">
-                <label class="form-label fw-semibold small text-muted">MODUL</label>
-                <div><span class="badge bg-light text-dark border">{{ moduleLabel(selectedLog.module) }}</span></div>
-              </div>
-              <div class="col-md-3">
-                <label class="form-label fw-semibold small text-muted">AKSI</label>
-                <div>
-                  <span class="badge" :class="`bg-${actionBadgeClass(selectedLog.action)}`">
-                    {{ actionLabel(selectedLog.action) }}
-                  </span>
-                </div>
-              </div>
-              <div class="col-12">
-                <label class="form-label fw-semibold small text-muted">DESKRIPSI</label>
-                <div>{{ selectedLog.description }}</div>
-              </div>
-              <div class="col-12" v-if="selectedLog.url">
-                <label class="form-label fw-semibold small text-muted">URL</label>
-                <div class="font-monospace small text-break">
-                  <span class="badge bg-secondary me-1">{{ selectedLog.method }}</span>{{ selectedLog.url }}
-                </div>
-              </div>
+              <button class="audit-close-btn" @click="closeModal">
+                <i class="bi bi-x-lg"></i>
+              </button>
             </div>
 
-            <!-- Data Perubahan -->
-            <div v-if="selectedLog.old_values || selectedLog.new_values" class="mt-2">
-              <label class="form-label fw-semibold small text-muted">DATA PERUBAHAN</label>
-              <div class="row g-2">
-                <div class="col-md-6" v-if="selectedLog.old_values">
-                  <div class="p-2 rounded border bg-light">
-                    <div class="fw-semibold small text-danger mb-1"><i class="bi bi-dash-circle me-1"></i>Sebelum</div>
-                    <pre class="mb-0 small" style="max-height:200px;overflow:auto;">{{ JSON.stringify(selectedLog.old_values, null, 2) }}</pre>
+            <!-- Modal Body -->
+            <div class="audit-modal-body">
+
+              <!-- Info Grid -->
+              <div class="audit-info-grid">
+                <div class="audit-info-item">
+                  <div class="audit-info-label"><i class="bi bi-clock me-1"></i>Waktu</div>
+                  <div class="audit-info-value">{{ formatDateTime(selectedLog.created_at) }}</div>
+                </div>
+                <div class="audit-info-item">
+                  <div class="audit-info-label"><i class="bi bi-wifi me-1"></i>IP Address</div>
+                  <div class="audit-info-value font-monospace">{{ selectedLog.ip_address || '—' }}</div>
+                </div>
+                <div class="audit-info-item">
+                  <div class="audit-info-label"><i class="bi bi-person me-1"></i>User</div>
+                  <div class="audit-info-value">
+                    {{ selectedLog.user_name || '—' }}
+                    <span v-if="selectedLog.user_role" class="badge ms-1" :class="roleClass(selectedLog.user_role)" style="font-size:0.65rem;">
+                      {{ selectedLog.user_role }}
+                    </span>
                   </div>
                 </div>
-                <div class="col-md-6" v-if="selectedLog.new_values">
-                  <div class="p-2 rounded border bg-light">
-                    <div class="fw-semibold small text-success mb-1"><i class="bi bi-plus-circle me-1"></i>Sesudah</div>
-                    <pre class="mb-0 small" style="max-height:200px;overflow:auto;">{{ JSON.stringify(selectedLog.new_values, null, 2) }}</pre>
+                <div class="audit-info-item">
+                  <div class="audit-info-label"><i class="bi bi-grid me-1"></i>Modul</div>
+                  <div class="audit-info-value">
+                    <span class="badge bg-light text-dark border">{{ moduleLabel(selectedLog.module) }}</span>
+                  </div>
+                </div>
+                <div class="audit-info-item">
+                  <div class="audit-info-label"><i class="bi bi-lightning me-1"></i>Aksi</div>
+                  <div class="audit-info-value">
+                    <span class="badge" :class="`bg-${actionBadgeClass(selectedLog.action)}`">
+                      {{ actionLabel(selectedLog.action) }}
+                    </span>
+                  </div>
+                </div>
+                <div class="audit-info-item" v-if="selectedLog.method">
+                  <div class="audit-info-label"><i class="bi bi-arrow-right-circle me-1"></i>Method</div>
+                  <div class="audit-info-value">
+                    <span class="badge bg-secondary">{{ selectedLog.method }}</span>
                   </div>
                 </div>
               </div>
+
+              <!-- Deskripsi -->
+              <div class="audit-section">
+                <div class="audit-section-label">Deskripsi</div>
+                <div class="audit-section-value">{{ selectedLog.description }}</div>
+              </div>
+
+              <!-- URL -->
+              <div class="audit-section" v-if="selectedLog.url">
+                <div class="audit-section-label">URL</div>
+                <div class="audit-section-value font-monospace small text-break">{{ selectedLog.url }}</div>
+              </div>
+
+              <!-- ─── DATA PERUBAHAN (Before vs After) ─── -->
+              <div v-if="selectedLog.old_values || selectedLog.new_values" class="audit-diff-section">
+                <div class="audit-section-label mb-2">
+                  <i class="bi bi-arrow-left-right me-1"></i>Data Perubahan
+                </div>
+                <div class="audit-diff-grid">
+
+                  <!-- SEBELUM -->
+                  <div class="audit-diff-box audit-diff-old" v-if="selectedLog.old_values">
+                    <div class="audit-diff-title">
+                      <i class="bi bi-dash-circle-fill me-1"></i>Sebelum
+                    </div>
+                    <div class="audit-diff-rows">
+                      <div
+                        v-for="(val, key) in selectedLog.old_values"
+                        :key="key"
+                        class="audit-diff-row"
+                        :class="{ 'audit-diff-changed': isDifferent(key, selectedLog.old_values, selectedLog.new_values) }"
+                      >
+                        <span class="audit-diff-key">{{ key }}</span>
+                        <span class="audit-diff-val">{{ formatVal(val) }}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- SESUDAH -->
+                  <div class="audit-diff-box audit-diff-new" v-if="selectedLog.new_values">
+                    <div class="audit-diff-title">
+                      <i class="bi bi-plus-circle-fill me-1"></i>Sesudah
+                    </div>
+                    <div class="audit-diff-rows">
+                      <div
+                        v-for="(val, key) in selectedLog.new_values"
+                        :key="key"
+                        class="audit-diff-row"
+                        :class="{ 'audit-diff-changed': isDifferent(key, selectedLog.old_values, selectedLog.new_values) }"
+                      >
+                        <span class="audit-diff-key">{{ key }}</span>
+                        <span class="audit-diff-val">{{ formatVal(val) }}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Jika hanya ada satu sisi (create atau delete) -->
+                  <div class="audit-diff-box audit-diff-new" v-if="!selectedLog.old_values && selectedLog.new_values">
+                    <!-- sudah dirender di atas -->
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tidak ada perubahan data -->
+              <div v-else class="audit-no-diff">
+                <i class="bi bi-info-circle me-1"></i>Tidak ada data perubahan tercatat untuk aksi ini.
+              </div>
+
+              <!-- User Agent -->
+              <div class="audit-section" v-if="selectedLog.user_agent">
+                <div class="audit-section-label">Browser / User Agent</div>
+                <div class="audit-section-value small text-muted text-break">{{ selectedLog.user_agent }}</div>
+              </div>
+
             </div>
 
-            <!-- User Agent -->
-            <div class="mt-3" v-if="selectedLog.user_agent">
-              <label class="form-label fw-semibold small text-muted">BROWSER / USER AGENT</label>
-              <div class="small text-muted text-break">{{ selectedLog.user_agent }}</div>
+            <!-- Modal Footer -->
+            <div class="audit-modal-footer">
+              <button class="btn btn-secondary btn-sm" @click="closeModal">
+                <i class="bi bi-x me-1"></i>Tutup
+              </button>
             </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Tutup</button>
+
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
+
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
-import { Modal } from 'bootstrap'
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-const logs              = ref([])
-const loading           = ref(false)
-const meta              = ref({ total: 0, page: 1, last_page: 1, per_page: 50 })
-const selectedLog       = ref(null)
-const availableModules  = ref([])
-const availableActions  = ref([])
+const logs             = ref([])
+const loading          = ref(false)
+const meta             = ref({ total: 0, page: 1, last_page: 1, per_page: 50 })
+const selectedLog      = ref(null)
+const showModal        = ref(false)
+const availableModules = ref([])
+const availableActions = ref([])
 
 const filters = ref({
   search:    '',
@@ -239,17 +307,24 @@ const filters = ref({
   date_to:   '',
 })
 
-let timer        = null
-let detailModal  = null
+let timer = null
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
 onMounted(async () => {
-  detailModal = new Modal(document.getElementById('auditDetailModal'))
   await Promise.all([loadMeta(), load()])
+  window.addEventListener('keydown', onKeydown)
 })
 
-// ─── Data fetching ───────────────────────────────────────────────────────────
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
+
+function onKeydown(e) {
+  if (e.key === 'Escape' && showModal.value) closeModal()
+}
+
+// ─── Data fetching ────────────────────────────────────────────────────────────
 
 async function load() {
   loading.value = true
@@ -292,11 +367,32 @@ function resetFilters() {
   load()
 }
 
-// ─── Detail modal ─────────────────────────────────────────────────────────────
+// ─── Modal ────────────────────────────────────────────────────────────────────
 
 function showDetail(log) {
   selectedLog.value = log
-  detailModal.show()
+  showModal.value   = true
+  document.body.style.overflow = 'hidden'
+}
+
+function closeModal() {
+  showModal.value  = false
+  selectedLog.value = null
+  document.body.style.overflow = ''
+}
+
+// ─── Diff helper ──────────────────────────────────────────────────────────────
+
+function isDifferent(key, oldVals, newVals) {
+  if (!oldVals || !newVals) return false
+  return String(oldVals[key] ?? '') !== String(newVals[key] ?? '')
+}
+
+function formatVal(val) {
+  if (val === null || val === undefined) return '—'
+  if (typeof val === 'boolean') return val ? 'Ya' : 'Tidak'
+  if (typeof val === 'object') return JSON.stringify(val)
+  return String(val)
 }
 
 // ─── Label helpers ────────────────────────────────────────────────────────────
@@ -365,3 +461,229 @@ function formatDateTime(dt) {
   })
 }
 </script>
+
+<style scoped>
+/* ─── Overlay ──────────────────────────────────────────────────────────── */
+.audit-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── Dialog ───────────────────────────────────────────────────────────── */
+.audit-modal-dialog {
+  width: 100%;
+  max-width: 760px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.audit-modal-content {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+/* ─── Header ───────────────────────────────────────────────────────────── */
+.audit-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e9ecef;
+  background: #f8f9fa;
+  border-radius: 12px 12px 0 0;
+  flex-shrink: 0;
+}
+
+.audit-close-btn {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.audit-close-btn:hover { background: #e9ecef; color: #212529; }
+
+/* ─── Body ─────────────────────────────────────────────────────────────── */
+.audit-modal-body {
+  padding: 1.25rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* ─── Info Grid ────────────────────────────────────────────────────────── */
+.audit-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 1rem;
+  border: 1px solid #e9ecef;
+}
+
+.audit-info-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6c757d;
+  margin-bottom: 0.2rem;
+}
+
+.audit-info-value {
+  font-size: 0.875rem;
+  color: #212529;
+}
+
+/* ─── Sections ─────────────────────────────────────────────────────────── */
+.audit-section {
+  margin-bottom: 1rem;
+}
+
+.audit-section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6c757d;
+  margin-bottom: 0.3rem;
+}
+
+.audit-section-value {
+  font-size: 0.875rem;
+  color: #212529;
+}
+
+/* ─── Diff Section ─────────────────────────────────────────────────────── */
+.audit-diff-section {
+  margin-bottom: 1rem;
+}
+
+.audit-diff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.audit-diff-box {
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+  overflow: hidden;
+}
+
+.audit-diff-old {
+  border-color: #f5c6cb;
+  background: #fff5f5;
+}
+
+.audit-diff-new {
+  border-color: #c3e6cb;
+  background: #f5fff7;
+}
+
+.audit-diff-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid;
+}
+
+.audit-diff-old .audit-diff-title {
+  color: #842029;
+  background: #f8d7da;
+  border-color: #f5c6cb;
+}
+
+.audit-diff-new .audit-diff-title {
+  color: #155724;
+  background: #d4edda;
+  border-color: #c3e6cb;
+}
+
+.audit-diff-rows {
+  padding: 0.5rem;
+}
+
+.audit-diff-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.3rem 0.25rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+
+.audit-diff-row:last-child { border-bottom: none; }
+
+/* Highlight baris yang berubah */
+.audit-diff-old .audit-diff-row.audit-diff-changed {
+  background: rgba(220, 53, 69, 0.08);
+}
+.audit-diff-new .audit-diff-row.audit-diff-changed {
+  background: rgba(25, 135, 84, 0.08);
+}
+
+.audit-diff-key {
+  color: #6c757d;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.audit-diff-val {
+  color: #212529;
+  text-align: right;
+  word-break: break-word;
+}
+
+.audit-no-diff {
+  font-size: 0.85rem;
+  color: #6c757d;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+/* ─── Footer ───────────────────────────────────────────────────────────── */
+.audit-modal-footer {
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid #e9ecef;
+  background: #f8f9fa;
+  border-radius: 0 0 12px 12px;
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+</style>

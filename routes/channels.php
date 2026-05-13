@@ -10,19 +10,45 @@ Broadcast::channel('permintaan-material',  fn($u) => auth()->check());
 Broadcast::channel('purchase-order',       fn($u) => auth()->check());
 Broadcast::channel('bon-pengeluaran',      fn($u) => auth()->check());
 Broadcast::channel('surat-jalan',          fn($u) => auth()->check());
+Broadcast::channel('retur-barang',         fn($u) => auth()->check());
 Broadcast::channel('master-data',          fn($u) => auth()->check());
 Broadcast::channel('master-gudang',        fn($u) => auth()->check());
 Broadcast::channel('master-kategori',      fn($u) => auth()->check());
 Broadcast::channel('master-unit',          fn($u) => auth()->check());
 Broadcast::channel('master-karyawan',      fn($u) => auth()->check());
-Broadcast::channel('fuel-log',             fn($u) => auth()->check());
 Broadcast::channel('apd',                  fn($u) => auth()->check());
+
+// Stok Opname — semua gudang (untuk HO/Superuser)
+Broadcast::channel('stok-opname',          fn($u) => auth()->check());
+
+// Stok Opname — per gudang spesifik
+Broadcast::channel('stok-opname.{warehouseId}', function ($user, $warehouseId) {
+    return $user->isSuperuser()
+        || $user->isAdminHO()
+        || (int) $user->warehouse_id === (int) $warehouseId;
+});
+
+// Fuel Log — semua gudang
+Broadcast::channel('fuel-log',             fn($u) => auth()->check());
+
+// Fuel Log — per gudang spesifik
+Broadcast::channel('fuel-log.{warehouseId}', function ($user, $warehouseId) {
+    return $user->isSuperuser()
+        || $user->isAdminHO()
+        || (int) $user->warehouse_id === (int) $warehouseId;
+});
 
 // Accounting & Payroll — hanya user dengan permission view-accounting / view-payroll
 Broadcast::channel('accounting', function ($user) {
     return $user->hasPermissionTo('view-accounting') || $user->isSuperuser();
 });
+Broadcast::channel('accounting-{type}', function ($user) {
+    return $user->hasPermissionTo('view-accounting') || $user->isSuperuser();
+});
 Broadcast::channel('payroll', function ($user) {
+    return $user->hasPermissionTo('view-payroll') || $user->isSuperuser();
+});
+Broadcast::channel('payroll-{type}', function ($user) {
     return $user->hasPermissionTo('view-payroll') || $user->isSuperuser();
 });
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\PurchaseOrderUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\PurchaseOrder;
 use App\Services\PurchaseOrderService;
@@ -62,6 +63,8 @@ class PurchaseOrderController extends Controller
 
         $po = $this->purchaseOrderService->create($validated, $request->user()->id);
 
+        broadcast(new PurchaseOrderUpdated($po->fresh(), 'created'))->toOthers();
+
         return response()->json([
             'success' => true,
             'data'    => $po,
@@ -90,6 +93,8 @@ class PurchaseOrderController extends Controller
     public function sendToVendor(PurchaseOrder $purchaseOrder): JsonResponse
     {
         $po = $this->purchaseOrderService->sendToVendor($purchaseOrder);
+
+        broadcast(new PurchaseOrderUpdated($po->fresh(), 'sent_to_vendor'))->toOthers();
 
         return response()->json([
             'success' => true,

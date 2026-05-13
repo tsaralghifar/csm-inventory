@@ -2,6 +2,14 @@
 
 namespace App\Providers;
 
+use App\Models\Item;
+use App\Models\PurchaseOrder;
+use App\Models\StokOpname;
+use App\Models\User;
+use App\Observers\ItemObserver;
+use App\Observers\PurchaseOrderObserver;
+use App\Observers\StokOpnameObserver;
+use App\Observers\UserObserver;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -20,5 +28,21 @@ class AppServiceProvider extends ServiceProvider
                 return true;
             }
         });
+
+        // ─── Daftarkan semua Observer Audit Log ───────────────────────────────
+        // Setiap observer mencatat create/update/delete otomatis
+        // dengan before (old_values) dan after (new_values) yang jelas.
+        Item::observe(ItemObserver::class);
+        PurchaseOrder::observe(PurchaseOrderObserver::class);
+        User::observe(UserObserver::class);
+        StokOpname::observe(StokOpnameObserver::class);
+
+        // Tambahkan observer lain di sini jika diperlukan:
+        // SuratJalan::observe(SuratJalanObserver::class);
+        // TransferBarang::observe(TransferBarangObserver::class);
+        // BonPengeluaran::observe(BonPengeluaranObserver::class);
+        // ReturBarang::observe(ReturBarangObserver::class);
+        // FuelLog::observe(FuelLogObserver::class);
+        // Warehouse::observe(WarehouseObserver::class);
     }
 }

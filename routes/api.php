@@ -157,7 +157,12 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
     Route::get('/bon-pengeluaran', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'index']);
     Route::post('/bon-pengeluaran', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'store']);
     Route::get('/bon-pengeluaran/{bonPengeluaran}', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'show']);
+    Route::put('/bon-pengeluaran/{bonPengeluaran}/items', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'updateItems']);
     Route::post('/bon-pengeluaran/{bonPengeluaran}/issue', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'issue']);
+    Route::post('/bon-pengeluaran/{bonPengeluaran}/request-confirmation', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'requestConfirmation']);
+    Route::post('/bon-pengeluaran/{bonPengeluaran}/confirm', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'confirmByMechanic']);
+    Route::post('/bon-pengeluaran/{bonPengeluaran}/reject-mechanic', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'rejectByMechanic']);
+    Route::post('/bon-pengeluaran/{bonPengeluaran}/revise', [\App\Http\Controllers\Api\BonPengeluaranController::class, 'revise']);
 
     // Surat Jalan
     

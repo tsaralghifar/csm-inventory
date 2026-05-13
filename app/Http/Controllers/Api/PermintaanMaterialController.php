@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\PermintaanMaterialUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\PermintaanMaterial;
 use App\Services\PermintaanMaterialService;
@@ -52,7 +53,6 @@ class PermintaanMaterialController extends Controller
             'items.*.new_min_stock'     => 'nullable|numeric|min:0',
         ]);
 
-        // Validasi manual untuk field wajib pada barang baru
         foreach ($validated['items'] as $idx => $itemData) {
             if (!empty($itemData['is_new_item'])) {
                 if (empty($itemData['new_part_number'])) {
@@ -70,9 +70,11 @@ class PermintaanMaterialController extends Controller
 
         $result = $this->service->store($validated, $request->user()->id);
 
+        broadcast(new PermintaanMaterialUpdated($result['pm']->fresh(), 'created'))->toOthers();
+
         $message = 'Permintaan material berhasil dibuat';
         if ($result['new_items_count'] > 0) {
-            $message .= " ({$result['new_items_count']} barang baru otomatis terdaftar ke Master Barang)";
+            $message .= ' (' . $result['new_items_count'] . ' barang baru otomatis terdaftar ke Master Barang)';
         }
 
         return response()->json([
@@ -107,6 +109,8 @@ class PermintaanMaterialController extends Controller
     {
         $result = $this->service->submit($pm);
 
+        broadcast(new PermintaanMaterialUpdated($result['pm']->fresh(), 'submitted'))->toOthers();
+
         return response()->json([
             'success' => true,
             'data'    => $result['pm'],
@@ -125,6 +129,8 @@ class PermintaanMaterialController extends Controller
         }
 
         $pm = $this->service->authorizeChief($pm, $request->user()->id);
+
+        broadcast(new PermintaanMaterialUpdated($pm->fresh(), 'authorized_chief'))->toOthers();
 
         return response()->json([
             'success' => true,
@@ -145,6 +151,8 @@ class PermintaanMaterialController extends Controller
 
         $pm = $this->service->approveManager($pm, $request->user()->id);
 
+        broadcast(new PermintaanMaterialUpdated($pm->fresh(), 'approved_manager'))->toOthers();
+
         return response()->json([
             'success' => true,
             'data'    => $pm,
@@ -163,6 +171,8 @@ class PermintaanMaterialController extends Controller
         }
 
         $pm = $this->service->approveHO($pm, $request->user()->id);
+
+        broadcast(new PermintaanMaterialUpdated($pm->fresh(), 'approved_ho'))->toOthers();
 
         return response()->json([
             'success' => true,
@@ -183,10 +193,12 @@ class PermintaanMaterialController extends Controller
 
         $pm = $this->service->submitPurchasing($pm, $request->user()->id);
 
+        broadcast(new PermintaanMaterialUpdated($pm->fresh(), 'submit_purchasing'))->toOthers();
+
         return response()->json([
             'success' => true,
             'data'    => $pm,
-            'message' => "PM {$pm->nomor} berhasil diajukan ke Purchasing. Status: Menunggu Pembuatan PO.",
+            'message' => 'PM ' . $pm->nomor . ' berhasil diajukan ke Purchasing. Status: Menunggu Pembuatan PO.',
         ]);
     }
 
@@ -196,6 +208,8 @@ class PermintaanMaterialController extends Controller
         $request->validate(['reason' => 'required|string|min:5']);
 
         $pm = $this->service->reject($pm, $request->reason);
+
+        broadcast(new PermintaanMaterialUpdated($pm->fresh(), 'rejected'))->toOthers();
 
         return response()->json([
             'success' => true,
@@ -207,7 +221,16 @@ class PermintaanMaterialController extends Controller
     // DELETE /permintaan-material/{id}
     public function destroy(PermintaanMaterial $pm)
     {
+        $warehouseId = $pm->warehouse_id;
+        $nomor       = $pm->nomor;
+
         $this->service->destroy($pm);
+
+        // Broadcast dengan data minimal karena record sudah dihapus
+        broadcast(new PermintaanMaterialUpdated(
+            new PermintaanMaterial(['id' => null, 'nomor' => $nomor, 'status' => 'deleted', 'warehouse_id' => $warehouseId]),
+            'deleted'
+        ))->toOthers();
 
         return response()->json([
             'success' => true,
@@ -220,7 +243,7 @@ class PermintaanMaterialController extends Controller
     {
         $pm->load('items.item', 'warehouse', 'requester', 'chiefAuthorizer', 'managerApprover', 'hoApprover');
 
-        $data           = $pm->toArray();
+        $data             = $pm->toArray();
         $data['approver'] = $pm->hoApprover ? $pm->hoApprover->toArray() : null;
 
         $jsonFile = tempnam(sys_get_temp_dir(), 'pm_json_') . '.json';
@@ -240,7 +263,7 @@ class PermintaanMaterialController extends Controller
             ], 500);
         }
 
-        return response()->download($xlsxFile, "PM-{$pm->nomor}.xlsx", [
+        return response()->download($xlsxFile, 'PM-' . $pm->nomor . '.xlsx', [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ])->deleteFileAfterSend(true);
     }

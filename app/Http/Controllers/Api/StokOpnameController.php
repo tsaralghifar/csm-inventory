@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\StokOpnameUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\StokOpname;
 use App\Services\StockService;
@@ -60,6 +61,8 @@ class StokOpnameController extends Controller
 
         $opname = $this->stokOpnameService->create($validated, $request->user()->id);
 
+        broadcast(new StokOpnameUpdated($opname->fresh(), 'created'))->toOthers();
+
         return response()->json([
             'success' => true,
             'data'    => $opname,
@@ -90,6 +93,8 @@ class StokOpnameController extends Controller
 
         $opname = $this->stokOpnameService->update($stokOpname, $validated);
 
+        broadcast(new StokOpnameUpdated($opname->fresh(), 'updated'))->toOthers();
+
         return response()->json(['success' => true, 'data' => $opname, 'message' => 'Dokumen berhasil diperbarui']);
     }
 
@@ -106,6 +111,8 @@ class StokOpnameController extends Controller
 
         $stokOpname->update(['status' => 'menunggu_approval', 'diajukan_at' => now()]);
 
+        broadcast(new StokOpnameUpdated($stokOpname->fresh(), 'ajukan'))->toOthers();
+
         return response()->json(['success' => true, 'message' => "Dokumen {$stokOpname->nomor} diajukan untuk persetujuan"]);
     }
 
@@ -117,6 +124,8 @@ class StokOpnameController extends Controller
         }
 
         $opname = $this->stokOpnameService->approve($stokOpname, $this->stockService, $request->user()->id);
+
+        broadcast(new StokOpnameUpdated($opname->fresh(), 'setujui'))->toOthers();
 
         return response()->json(['success' => true, 'data' => $opname, 'message' => "Dokumen {$opname->nomor} disetujui dan stok sudah disesuaikan"]);
     }
@@ -141,6 +150,8 @@ class StokOpnameController extends Controller
             'disetujui_at'     => now(),
         ]);
 
+        broadcast(new StokOpnameUpdated($stokOpname->fresh(), 'tolak'))->toOthers();
+
         return response()->json(['success' => true, 'message' => "Dokumen {$stokOpname->nomor} ditolak"]);
     }
 
@@ -155,7 +166,16 @@ class StokOpnameController extends Controller
             return response()->json(['success' => false, 'message' => 'Tidak berhak menghapus dokumen ini'], 403);
         }
 
+        $nomor = $stokOpname->nomor;
+        $warehouseId = $stokOpname->warehouse_id;
+
+        // Buat dummy object untuk broadcast sebelum dihapus
+        $payload = (object) ['id' => $stokOpname->id, 'nomor' => $nomor, 'status' => 'deleted', 'warehouse_id' => $warehouseId];
+
         $stokOpname->delete();
+
+        // Broadcast manual karena model sudah dihapus
+        broadcast(new StokOpnameUpdated(new StokOpname(['id' => $payload->id, 'nomor' => $payload->nomor, 'status' => $payload->status, 'warehouse_id' => $payload->warehouse_id]), 'deleted'))->toOthers();
 
         return response()->json(['success' => true, 'message' => 'Dokumen berhasil dihapus']);
     }

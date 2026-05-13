@@ -40,11 +40,12 @@ class AuditLog extends Model
     // ─── Static helper ───────────────────────────────────────────────────
 
     /**
-     * Catat aktivitas.
+     * Catat aktivitas ke audit_logs.
      *
      * Contoh pemakaian:
-     *   AuditLog::record('create', 'items', 'Barang baru ditambahkan: Oli SAE 40', $item);
-     *   AuditLog::record('login',  'auth',  'Login berhasil');
+     *   AuditLog::record('create', 'items', 'Barang baru ditambahkan: Oli SAE 40', $item, null, $item->toArray());
+     *   AuditLog::record('update', 'po', 'Status PO berubah: draft → sent', $po, ['status'=>'draft'], ['status'=>'sent']);
+     *   AuditLog::record('login',  'auth', 'Login berhasil');
      */
     public static function record(
         string $action,
@@ -54,6 +55,11 @@ class AuditLog extends Model
         ?array $old = null,
         ?array $new = null,
     ): void {
+        // Jangan catat jika audit sedang di-suppress (misal: seeder/command)
+        if (static::$suppressAudit) {
+            return;
+        }
+
         $request = request();
         $user    = $request->user();
 
@@ -73,6 +79,33 @@ class AuditLog extends Model
             'url'            => $request->fullUrl(),
             'method'         => $request->method(),
         ]);
+    }
+
+    // ─── Suppress (untuk seeder / command / test) ─────────────────────────
+
+    protected static bool $suppressAudit = false;
+
+    /**
+     * Jalankan callback tanpa mencatat audit log.
+     * Berguna saat seeder, import massal, atau backfill.
+     *
+     * Contoh:
+     *   AuditLog::withoutAudit(fn() => Item::create([...]));
+     */
+    public static function withoutAudit(callable $callback): mixed
+    {
+        static::$suppressAudit = true;
+        try {
+            return $callback();
+        } finally {
+            static::$suppressAudit = false;
+        }
+    }
+
+    /** Cek apakah audit sedang di-suppress. */
+    public static function isSuppressed(): bool
+    {
+        return static::$suppressAudit;
     }
 
     // ─── Label helpers ───────────────────────────────────────────────────
