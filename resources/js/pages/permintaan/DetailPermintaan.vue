@@ -661,6 +661,44 @@
                 <label class="form-label small fw-semibold">Catatan</label>
                 <input v-model="poForm.notes" type="text" class="form-control form-control-sm" placeholder="Opsional..." />
               </div>
+
+              <!-- ── Jenis Pembayaran ───────────────────────────────────── -->
+              <div class="col-12">
+                <hr class="my-1" />
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Jenis Pembayaran <span class="text-danger">*</span></label>
+                <div class="d-flex gap-3 mt-1">
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" id="po-cash" value="cash" v-model="poForm.payment_type" />
+                    <label class="form-check-label small" for="po-cash">
+                      <i class="bi bi-cash-coin text-success me-1"></i>Cash / Tunai
+                    </label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" id="po-kredit" value="kredit" v-model="poForm.payment_type" />
+                    <label class="form-check-label small" for="po-kredit">
+                      <i class="bi bi-credit-card text-primary me-1"></i>Kredit
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <!-- Tenor — hanya tampil jika Kredit -->
+              <div class="col-md-3" v-if="poForm.payment_type === 'kredit'">
+                <label class="form-label small fw-semibold">Tenor <span class="text-danger">*</span></label>
+                <div class="input-group input-group-sm">
+                  <input v-model="poForm.payment_term_days" type="number" class="form-control form-control-sm"
+                    min="1" max="365" placeholder="30" />
+                  <span class="input-group-text">hari</span>
+                </div>
+              </div>
+              <!-- Estimasi jatuh tempo -->
+              <div class="col-md-5" v-if="poForm.payment_type === 'kredit' && poForm.payment_term_days > 0">
+                <label class="form-label small fw-semibold">Estimasi Jatuh Tempo</label>
+                <div class="form-control form-control-sm bg-light text-muted" style="cursor:default;">
+                  <i class="bi bi-calendar-event me-1"></i>{{ estimatedDueDatePO }}
+                </div>
+              </div>
             </div>
 
             <div class="d-flex align-items-center justify-content-between mb-2">
@@ -775,6 +813,13 @@
                 <span v-else class="small text-muted">Rp 0</span>
               </div>
 
+              <!-- Ringkasan Pembayaran -->
+              <div v-if="poForm.payment_type === 'kredit'" class="d-flex align-items-center justify-content-between border-top pt-2 mb-1">
+                <span class="small text-primary">
+                  <i class="bi bi-credit-card me-1"></i>Kredit {{ poForm.payment_term_days }} hari
+                </span>
+                <span class="small text-muted">Jatuh tempo: {{ estimatedDueDatePO }}</span>
+              </div>
               <div class="d-flex align-items-center justify-content-between border-top pt-2">
                 <span class="fw-bold">Grand Total</span>
                 <span class="text-primary fw-bold fs-6">Rp {{ $formatNumber(totalPO) }}</span>
@@ -825,7 +870,7 @@ const saving = ref(false)
 const rejectReason = ref('')
 
 const bonForm = ref({ warehouse_id: '', issue_date: '', received_by: '', notes: '' })
-const poForm = ref({ vendor_name: '', vendor_contact: '', warehouse_id: '', expected_date: '', notes: '', diskon_persen: 0, ppn_percent: 0, items: [] })
+const poForm = ref({ vendor_name: '', vendor_contact: '', warehouse_id: '', expected_date: '', notes: '', diskon_persen: 0, ppn_percent: 0, items: [], payment_type: 'cash', payment_term_days: 30 })
 
 const suppliers = ref([])
 const supplierSearch = ref('')
@@ -872,6 +917,14 @@ const totalDiskonPO = computed(() =>
 const subtotalPO = computed(() => subtotalSebelumDiskon.value - totalDiskonPO.value)
 const ppnAmountPO = computed(() => Math.round(subtotalPO.value * (parseFloat(poForm.value.ppn_percent) || 0) / 100))
 const totalPO = computed(() => subtotalPO.value + ppnAmountPO.value)
+
+const estimatedDueDatePO = computed(() => {
+  const days = parseInt(poForm.value.payment_term_days)
+  if (!days || days < 1) return '-'
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+})
 
 const statusLabel = (s) => ({
   draft: 'Draft',
@@ -1149,6 +1202,8 @@ async function openPOModal() {
     notes: '',
     diskon_persen: 0,
     ppn_percent: 0,
+    payment_type: 'cash',
+    payment_term_days: 30,
     items,
   }
   supplierSearch.value = ''
@@ -1169,6 +1224,9 @@ function deselectAllItems() {
 
 async function savePO() {
   if (!poForm.value.vendor_name) return toast.error('Isi nama vendor/supplier')
+  if (poForm.value.payment_type === 'kredit' && (!poForm.value.payment_term_days || poForm.value.payment_term_days < 1)) {
+    return toast.error('Isi tenor (hari) untuk PO kredit')
+  }
   const selectedItems = poForm.value.items.filter(i => i.selected)
   if (!selectedItems.length) return toast.error('Pilih minimal satu item')
   saving.value = true
@@ -1182,6 +1240,8 @@ async function savePO() {
       notes: poForm.value.notes,
       ppn_percent: poForm.value.ppn_percent,
       diskon_persen: poForm.value.diskon_persen,
+      payment_type: poForm.value.payment_type,
+      payment_term_days: poForm.value.payment_type === 'kredit' ? parseInt(poForm.value.payment_term_days) : null,
       items: selectedItems.map(i => ({
         item_id: i.item_id,
         permintaan_material_item_id: i.permintaan_material_item_id,

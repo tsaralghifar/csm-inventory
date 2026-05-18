@@ -38,8 +38,11 @@ class ItemController extends Controller
             ->pluck('simple_avg', 'item_id');
 
         $items->getCollection()->transform(function ($item) use ($request, $avgPrices) {
+            // Prioritas: avg dari price history → fallback ke kolom price di master item
             if ($avgPrices->has($item->id)) {
                 $item->price = round((float) $avgPrices[$item->id], 2);
+            } else {
+                $item->price = round((float) ($item->price ?? 0), 2);
             }
             if ($request->warehouse_id) {
                 $stock               = $item->itemStocks->where('warehouse_id', $request->warehouse_id)->first();

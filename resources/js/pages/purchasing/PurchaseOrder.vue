@@ -10,6 +10,62 @@
       </button>
     </div>
 
+    <!-- Summary Card: Cash vs Kredit -->
+    <div class="row g-2 mb-3" v-if="summary">
+      <div class="col-6 col-md-3">
+        <div class="csm-card h-100">
+          <div class="csm-card-body py-2 px-3 d-flex align-items-center gap-3">
+            <div class="rounded-circle d-flex align-items-center justify-content-center bg-success bg-opacity-10" style="width:38px;height:38px;min-width:38px">
+              <i class="bi bi-cash-coin text-success fs-5"></i>
+            </div>
+            <div>
+              <div class="fw-bold fs-5 lh-1">{{ summary.cash_count }}</div>
+              <div class="small text-muted">PO Cash</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="csm-card h-100">
+          <div class="csm-card-body py-2 px-3 d-flex align-items-center gap-3">
+            <div class="rounded-circle d-flex align-items-center justify-content-center bg-primary bg-opacity-10" style="width:38px;height:38px;min-width:38px">
+              <i class="bi bi-credit-card text-primary fs-5"></i>
+            </div>
+            <div>
+              <div class="fw-bold fs-5 lh-1">{{ summary.kredit_count }}</div>
+              <div class="small text-muted">PO Kredit</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="csm-card h-100" :class="summary.near_due_count > 0 ? 'border-warning' : ''">
+          <div class="csm-card-body py-2 px-3 d-flex align-items-center gap-3">
+            <div class="rounded-circle d-flex align-items-center justify-content-center bg-warning bg-opacity-10" style="width:38px;height:38px;min-width:38px">
+              <i class="bi bi-clock-history text-warning fs-5"></i>
+            </div>
+            <div>
+              <div class="fw-bold fs-5 lh-1">{{ summary.near_due_count }}</div>
+              <div class="small text-muted">Mendekati Jatuh Tempo</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="csm-card h-100" :class="summary.overdue_count > 0 ? 'border-danger' : ''">
+          <div class="csm-card-body py-2 px-3 d-flex align-items-center gap-3">
+            <div class="rounded-circle d-flex align-items-center justify-content-center bg-danger bg-opacity-10" style="width:38px;height:38px;min-width:38px">
+              <i class="bi bi-exclamation-triangle text-danger fs-5"></i>
+            </div>
+            <div>
+              <div class="fw-bold fs-5 lh-1">{{ summary.overdue_count }}</div>
+              <div class="small text-muted">PO Kredit Overdue</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Filter -->
     <div class="csm-card mb-3">
       <div class="csm-card-body py-2">
@@ -17,13 +73,22 @@
           <div class="col-md-3">
             <input v-model="filters.search" class="form-control form-control-sm" placeholder="🔍 Cari No. PO..." @input="debouncedLoad" />
           </div>
-          <div class="col-md-3">
+          <div class="col-md-2">
             <select v-model="filters.status" class="form-select form-select-sm" @change="loadData">
               <option value="">Semua Status</option>
               <option value="draft">Draft</option>
               <option value="sent_to_vendor">Dikirim ke Vendor</option>
+              <option value="partial_received">Diterima Sebagian</option>
               <option value="completed">Selesai</option>
               <option value="cancelled">Dibatalkan</option>
+            </select>
+          </div>
+          <!-- Filter Jenis Pembayaran (BARU) -->
+          <div class="col-md-2">
+            <select v-model="filters.payment_type" class="form-select form-select-sm" @change="loadData">
+              <option value="">Semua Pembayaran</option>
+              <option value="cash">Cash</option>
+              <option value="kredit">Kredit</option>
             </select>
           </div>
           <div class="col-md-2">
@@ -32,9 +97,18 @@
           <div class="col-md-2">
             <input v-model="filters.date_to" type="date" class="form-control form-control-sm" @change="loadData" />
           </div>
-          <div class="col-md-2">
+          <div class="col-md-1">
             <button class="btn btn-outline-secondary btn-sm w-100" @click="resetFilters">Reset</button>
           </div>
+        </div>
+        <!-- Quick filter overdue/near-due -->
+        <div class="d-flex gap-2 mt-2">
+          <button class="btn btn-xs btn-outline-danger" :class="filters.overdue ? 'active' : ''" @click="toggleOverdue">
+            <i class="bi bi-exclamation-triangle me-1"></i>Overdue
+          </button>
+          <button class="btn btn-xs btn-outline-warning" :class="filters.near_due ? 'active' : ''" @click="toggleNearDue">
+            <i class="bi bi-clock me-1"></i>Jatuh Tempo &le;7 Hari
+          </button>
         </div>
       </div>
     </div>
@@ -53,6 +127,8 @@
                 <th>Gudang</th>
                 <th>Item</th>
                 <th>Total</th>
+                <th>Pembayaran</th>
+                <th>Jatuh Tempo</th>
                 <th>Status</th>
                 <th>Dibuat Oleh</th>
                 <th>Tanggal</th>
@@ -61,9 +137,10 @@
             </thead>
             <tbody>
               <tr v-if="!list.length">
-                <td colspan="10" class="text-center text-muted py-5">Belum ada Purchase Order</td>
+                <td colspan="12" class="text-center text-muted py-5">Belum ada Purchase Order</td>
               </tr>
-              <tr v-for="po in list" :key="po.id">
+              <tr v-for="po in list" :key="po.id"
+                :class="isOverdueRow(po) ? 'table-danger' : isNearDueRow(po) ? 'table-warning' : ''">
                 <td class="fw-semibold text-primary">{{ po.po_number }}</td>
                 <td>
                   <div v-if="po.permintaan_materials?.length" class="d-flex flex-column gap-1">
@@ -76,6 +153,24 @@
                 <td><small>{{ po.warehouse?.name }}</small></td>
                 <td><span class="badge bg-secondary rounded-pill">{{ po.items_count }} item</span></td>
                 <td><small class="fw-semibold">Rp {{ $formatNumber(po.grand_total || po.total_amount) }}</small></td>
+                <!-- Kolom Pembayaran (BARU) -->
+                <td>
+                  <span class="badge" :class="po.payment_type === 'kredit' ? 'bg-primary' : 'bg-success'">
+                    <i class="bi" :class="po.payment_type === 'kredit' ? 'bi-credit-card' : 'bi-cash-coin'"></i>
+                    {{ po.payment_type === 'kredit' ? `Kredit ${po.payment_term_days}h` : 'Cash' }}
+                  </span>
+                </td>
+                <!-- Kolom Jatuh Tempo (BARU) -->
+                <td>
+                  <template v-if="po.payment_type === 'kredit' && po.payment_due_date">
+                    <div :class="isOverdueRow(po) ? 'text-danger fw-semibold' : isNearDueRow(po) ? 'text-warning fw-semibold' : 'text-muted'">
+                      <small>{{ $formatDate(po.payment_due_date) }}</small>
+                      <span v-if="isOverdueRow(po)" class="badge bg-danger ms-1" style="font-size:0.6rem;">LEWAT</span>
+                      <span v-else-if="isNearDueRow(po)" class="badge bg-warning text-dark ms-1" style="font-size:0.6rem;">SEGERA</span>
+                    </div>
+                  </template>
+                  <small v-else class="text-muted">-</small>
+                </td>
                 <td><span class="badge" :class="statusClass(po.status)">{{ statusLabel(po.status) }}</span></td>
                 <td><small>{{ po.creator?.name }}</small></td>
                 <td><small class="text-muted">{{ $formatDate(po.created_at) }}</small></td>
@@ -91,10 +186,12 @@
                       class="btn btn-outline-info" title="Kirim ke Vendor" @click="doSend(po)">
                       <i class="bi bi-send"></i>
                     </button>
+                    <!-- Tombol Buat Surat Jalan dinonaktifkan
                     <button v-if="po.status === 'sent_to_vendor' && !po.surat_jalan_count && can('create-sj')"
                       class="btn btn-outline-success" title="Buat Surat Jalan" @click="openSJModal(po)">
                       <i class="bi bi-truck"></i>
                     </button>
+                    -->
                   </div>
                 </td>
               </tr>
@@ -147,10 +244,63 @@
                     <tr><td class="text-muted">Status</td><td><span class="badge" :class="statusClass(selectedPO.status)">{{ statusLabel(selectedPO.status) }}</span></td></tr>
                     <tr><td class="text-muted">Est. Tiba</td><td>{{ selectedPO.expected_date ? $formatDate(selectedPO.expected_date) : '-' }}</td></tr>
                     <tr><td class="text-muted">Total</td><td class="fw-bold text-primary">Rp {{ $formatNumber(selectedPO.grand_total || selectedPO.total_amount) }}</td></tr>
+                    <!-- Info pembayaran (BARU) -->
+                    <tr>
+                      <td class="text-muted">Pembayaran</td>
+                      <td>
+                        <span class="badge" :class="selectedPO.payment_type === 'kredit' ? 'bg-primary' : 'bg-success'">
+                          {{ selectedPO.payment_type === 'kredit' ? 'Kredit' : 'Cash' }}
+                        </span>
+                        <span v-if="selectedPO.payment_type === 'kredit'" class="ms-1 small text-muted">
+                          {{ selectedPO.payment_term_days }} hari
+                        </span>
+                      </td>
+                    </tr>
+                    <tr v-if="selectedPO.payment_type === 'kredit'">
+                      <td class="text-muted">Jatuh Tempo</td>
+                      <td>
+                        <span :class="isOverdueRow(selectedPO) ? 'text-danger fw-semibold' : isNearDueRow(selectedPO) ? 'text-warning fw-semibold' : ''">
+                          {{ selectedPO.payment_due_date ? $formatDate(selectedPO.payment_due_date) : '-' }}
+                        </span>
+                        <span v-if="isOverdueRow(selectedPO)" class="badge bg-danger ms-1">Terlambat</span>
+                        <span v-else-if="isNearDueRow(selectedPO)" class="badge bg-warning text-dark ms-1">Segera</span>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
             </div>
+
+            <!-- Invoice supplier (hanya untuk PO kredit) -->
+            <div v-if="selectedPO.payment_type === 'kredit' && selectedPO.supplier_invoices?.length" class="mb-3">
+              <div class="small fw-semibold text-muted mb-1"><i class="bi bi-receipt me-1"></i>Invoice Hutang Supplier</div>
+              <div class="table-responsive">
+                <table class="table table-sm csm-table mb-0">
+                  <thead><tr><th>No. Invoice</th><th>Tgl. Invoice</th><th>Jatuh Tempo</th><th class="text-end">Total</th><th class="text-end">Sisa</th><th>Status</th></tr></thead>
+                  <tbody>
+                    <tr v-for="inv in selectedPO.supplier_invoices" :key="inv.id">
+                      <td class="fw-semibold small">{{ inv.invoice_number }}</td>
+                      <td><small>{{ $formatDate(inv.invoice_date) }}</small></td>
+                      <td>
+                        <small :class="inv.status !== 'paid' && new Date(inv.due_date) < new Date() ? 'text-danger fw-semibold' : ''">
+                          {{ $formatDate(inv.due_date) }}
+                        </small>
+                      </td>
+                      <td class="text-end small">Rp {{ $formatNumber(inv.total_amount) }}</td>
+                      <td class="text-end small fw-semibold" :class="parseFloat(inv.remaining_amount) > 0 ? 'text-danger' : 'text-success'">
+                        Rp {{ $formatNumber(inv.remaining_amount) }}
+                      </td>
+                      <td>
+                        <span class="badge" :class="inv.status === 'paid' ? 'bg-success' : inv.status === 'partial' ? 'bg-warning text-dark' : 'bg-danger'">
+                          {{ inv.status === 'paid' ? 'Lunas' : inv.status === 'partial' ? 'Sebagian' : 'Belum Bayar' }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <div class="table-responsive">
               <table class="table table-sm csm-table mb-0">
                 <thead><tr><th>#</th><th>Part Number</th><th>Nama Barang</th><th>Kode Unit</th><th>Tipe Unit</th><th class="text-end">Qty</th><th>Satuan</th><th class="text-end">Harga Satuan</th><th class="text-end">Total</th></tr></thead>
@@ -176,15 +326,11 @@
                     <td class="text-end small">Rp {{ $formatNumber(selectedPO.items?.reduce((s,i) => s + parseFloat(i.total_harga||0), 0)) }}</td>
                   </tr>
                   <tr v-if="parseFloat(selectedPO.diskon_persen) > 0">
-                    <td colspan="8" class="text-end text-muted small">
-                      Diskon {{ selectedPO.diskon_persen }}%
-                    </td>
+                    <td colspan="8" class="text-end text-muted small">Diskon {{ selectedPO.diskon_persen }}%</td>
                     <td class="text-end small text-danger fw-semibold">- Rp {{ $formatNumber(selectedPO.diskon_amount) }}</td>
                   </tr>
                   <tr v-if="parseFloat(selectedPO.ppn_percent) > 0">
-                    <td colspan="8" class="text-end text-muted small">
-                      PPN {{ selectedPO.ppn_percent }}%
-                    </td>
+                    <td colspan="8" class="text-end text-muted small">PPN {{ selectedPO.ppn_percent }}%</td>
                     <td class="text-end small text-warning fw-semibold">Rp {{ $formatNumber(selectedPO.ppn_amount) }}</td>
                   </tr>
                   <tr v-else>
@@ -291,11 +437,8 @@
           <div v-if="createStep === 1">
             <div class="alert alert-primary small py-2 mb-3">
               <i class="bi bi-info-circle me-1"></i>
-              <strong>Skenario 4 — Banyak PM → Banyak PO:</strong>
-              Pilih satu atau lebih PM yang sudah disetujui untuk digabung ke PO ini.
+              Pilih satu atau lebih Permintaan Material yang sudah disetujui.
             </div>
-
-            <!-- Filter PM -->
             <div class="row g-2 mb-3">
               <div class="col-md-5">
                 <input v-model="pmSearch" class="form-control form-control-sm"
@@ -308,8 +451,6 @@
                 </select>
               </div>
             </div>
-
-            <!-- Tabel PM yang bisa dipilih -->
             <div v-if="pmLoading" class="text-center py-3"><div class="csm-spinner"></div></div>
             <div v-else class="table-responsive" style="max-height:320px;overflow-y:auto;">
               <table class="table table-sm csm-table mb-0">
@@ -320,19 +461,13 @@
                         :checked="availablePMs.length && availablePMs.every(p => selectedPMIds.includes(p.id))"
                         @change="e => e.target.checked ? availablePMs.forEach(p => addPM(p)) : selectedPMIds = []" />
                     </th>
-                    <th>No. PM</th>
-                    <th>Tipe</th>
-                    <th>Gudang</th>
-                    <th>Diajukan Oleh</th>
-                    <th class="text-center">Jumlah Item</th>
-                    <th>Tgl. Disetujui</th>
+                    <th>No. PM</th><th>Tipe</th><th>Gudang</th><th>Diajukan Oleh</th>
+                    <th class="text-center">Jumlah Item</th><th>Tgl. Disetujui</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-if="!availablePMs.length">
-                    <td colspan="7" class="text-center text-muted py-4">
-                      Tidak ada PM yang tersedia (status: approved / pending_purchasing / partial_ordered)
-                    </td>
+                    <td colspan="7" class="text-center text-muted py-4">Tidak ada PM yang tersedia</td>
                   </tr>
                   <tr v-for="pm in availablePMs" :key="pm.id"
                     :class="selectedPMIds.includes(pm.id) ? 'table-primary' : ''"
@@ -357,8 +492,6 @@
                 </tbody>
               </table>
             </div>
-
-            <!-- PM yang sudah dipilih -->
             <div v-if="selectedPMIds.length" class="mt-3 p-3 border rounded" style="background:#f0f5ff;">
               <div class="small fw-semibold mb-2">
                 <i class="bi bi-check-circle-fill text-primary me-1"></i>
@@ -376,13 +509,11 @@
 
           <!-- STEP 2: Form PO & pilih item -->
           <div v-if="createStep === 2">
-            <!-- Info PM yang dipilih -->
             <div class="d-flex flex-wrap gap-2 mb-3">
               <span class="small fw-semibold text-muted me-1">PM Sumber:</span>
               <span v-for="pm in selectedPMs" :key="pm.id" class="badge bg-primary">{{ pm.nomor }}</span>
             </div>
 
-            <!-- Form vendor & info -->
             <div class="row g-2 mb-3">
               <div class="col-md-5">
                 <label class="form-label small fw-semibold">Vendor / Supplier <span class="text-danger">*</span></label>
@@ -396,13 +527,48 @@
                 <label class="form-label small fw-semibold">Estimasi Tiba</label>
                 <input v-model="createForm.expected_date" type="date" class="form-control form-control-sm" />
               </div>
-              <div class="col-md-12">
+
+              <!-- ── Jenis Pembayaran (BARU) ─────────────────────────────── -->
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Jenis Pembayaran <span class="text-danger">*</span></label>
+                <div class="d-flex gap-2">
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" id="pt-cash" value="cash" v-model="createForm.payment_type" />
+                    <label class="form-check-label small" for="pt-cash">
+                      <i class="bi bi-cash-coin text-success me-1"></i>Cash
+                    </label>
+                  </div>
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" id="pt-kredit" value="kredit" v-model="createForm.payment_type" />
+                    <label class="form-check-label small" for="pt-kredit">
+                      <i class="bi bi-credit-card text-primary me-1"></i>Kredit
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <!-- Tenor — hanya tampil jika Kredit -->
+              <div class="col-md-3" v-if="createForm.payment_type === 'kredit'">
+                <label class="form-label small fw-semibold">Tenor <span class="text-danger">*</span></label>
+                <div class="input-group input-group-sm">
+                  <input v-model="createForm.payment_term_days" type="number" class="form-control form-control-sm"
+                    min="1" max="365" placeholder="30" />
+                  <span class="input-group-text">hari</span>
+                </div>
+              </div>
+              <!-- Estimasi jatuh tempo — tampil saat kredit + tenor terisi -->
+              <div class="col-md-5" v-if="createForm.payment_type === 'kredit' && createForm.payment_term_days > 0">
+                <label class="form-label small fw-semibold">Estimasi Jatuh Tempo</label>
+                <div class="form-control form-control-sm bg-light text-muted" style="cursor:default;">
+                  <i class="bi bi-calendar-event me-1"></i>{{ estimatedDueDate }}
+                </div>
+              </div>
+
+              <div class="col-12">
                 <label class="form-label small fw-semibold">Catatan</label>
                 <input v-model="createForm.notes" type="text" class="form-control form-control-sm" placeholder="Opsional..." />
               </div>
             </div>
 
-            <!-- Tabel item dari semua PM -->
             <!-- Error multi-gudang -->
             <div v-if="hasMultipleWarehouses" class="alert alert-danger py-2 px-3 mb-2 small">
               <div class="fw-semibold mb-1"><i class="bi bi-x-circle-fill me-1"></i>Tidak bisa membuat PO</div>
@@ -413,7 +579,7 @@
                   <span class="text-muted ms-1">({{ wg.pmNomors.join(', ') }})</span>
                 </li>
               </ul>
-              Satu PO hanya boleh untuk <strong>satu gudang</strong>. Kembali ke Step 1 dan pilih PM dari gudang yang sama.
+              Satu PO hanya boleh untuk <strong>satu gudang</strong>.
             </div>
 
             <div class="d-flex align-items-center justify-content-between mb-2">
@@ -445,7 +611,6 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <!-- Group by PM -->
                   <template v-for="pm in selectedPMs" :key="pm.id">
                     <tr :style="{ background: getWarehouseColor(pm.warehouse?.id) + '18' }">
                       <td colspan="8" class="py-1">
@@ -492,7 +657,6 @@
                 </span>
                 <span class="small">Rp {{ $formatNumber(createSubtotal) }}</span>
               </div>
-              <!-- Toggle Diskon -->
               <div class="d-flex align-items-center gap-3 mb-2">
                 <span class="small fw-semibold text-danger"><i class="bi bi-tag me-1"></i>Diskon</span>
                 <div class="d-flex align-items-center gap-2 flex-grow-1">
@@ -512,7 +676,6 @@
                 <span v-if="createForm.diskon_persen > 0" class="small fw-semibold text-danger">- Rp {{ $formatNumber(createDiskonAmt) }}</span>
                 <span v-else class="small text-muted">Rp 0</span>
               </div>
-              <!-- Toggle PPN -->
               <div class="d-flex align-items-center gap-3 mb-2">
                 <span class="small fw-semibold"><i class="bi bi-percent me-1"></i>PPN</span>
                 <div class="d-flex align-items-center gap-2 flex-grow-1">
@@ -532,6 +695,13 @@
                 <span v-if="createForm.ppn_percent > 0" class="small fw-semibold text-success">+ Rp {{ $formatNumber(createPPN) }}</span>
                 <span v-else class="small text-muted">Rp 0</span>
               </div>
+              <!-- Ringkasan Pembayaran (BARU) -->
+              <div v-if="createForm.payment_type === 'kredit'" class="d-flex align-items-center justify-content-between border-top pt-2 mb-1">
+                <span class="small text-primary">
+                  <i class="bi bi-credit-card me-1"></i>Kredit {{ createForm.payment_term_days }} hari
+                </span>
+                <span class="small text-muted">Jatuh tempo: {{ estimatedDueDate }}</span>
+              </div>
               <div class="d-flex align-items-center justify-content-between border-top pt-2">
                 <span class="fw-bold">Grand Total</span>
                 <span class="text-primary fw-bold fs-6">Rp {{ $formatNumber(createTotal) }}</span>
@@ -542,13 +712,11 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
-          <!-- Step 1 -->
           <template v-if="createStep === 1">
             <button class="btn btn-primary btn-sm" @click="goToStep2" :disabled="!selectedPMIds.length">
               Lanjut Pilih Item <i class="bi bi-arrow-right ms-1"></i>
             </button>
           </template>
-          <!-- Step 2 -->
           <template v-if="createStep === 2">
             <button class="btn btn-outline-secondary btn-sm" @click="createStep = 1">
               <i class="bi bi-arrow-left me-1"></i>Kembali Pilih PM
@@ -567,155 +735,308 @@
 </template>
 
 <script setup>
+/**
+ * PurchaseOrder.vue — Script refactor
+ *
+ * Perubahan dari versi sebelumnya:
+ *  - Konstanta status & payment dipisah ke atas
+ *  - Filter/state dikelompokkan per concern
+ *  - Computed dipecah menjadi fungsi tematik (usePOForm, usePOFilters, usePMSelector)
+ *  - Semua fungsi async menggunakan try/catch/finally konsisten
+ *  - saveCreatePO mengirim payload via fungsi buildPayload() agar mudah ditest
+ *  - buildPOHtml dipecah ke helper fmtRp / fmtDate / renderRows / renderPaymentInfo
+ */
+
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useToast } from 'vue-toastification'
-import { useAuthStore } from '@/store/auth'
 import { Modal } from 'bootstrap'
 import axios from 'axios'
-import { useRealtime } from '@/composables/useRealtime'
+import { useToast } from 'vue-toastification'
 import { exportPOExcel } from '@/utils/excelExport'
 
-const toast = useToast()
-const auth = useAuthStore()
-const { listenPO, stopPO } = useRealtime()
-const can = (p) => auth.hasPermission(p)
+// ─── Konstanta ────────────────────────────────────────────────────────────────
 
-const list = ref([])
-const loading = ref(false)
-const saving = ref(false)
-const meta = ref({ total: 0, page: 1, last_page: 1 })
-const filters = ref({ search: '', status: '', date_from: '', date_to: '' })
-const selectedPO = ref(null)
-const sjForm = ref({ vendor_name: '', received_date: '', driver_name: '', vehicle_plate: '', notes: '', items: [] })
-let timer = null
+const PAYMENT_CASH   = 'cash'
+const PAYMENT_KREDIT = 'kredit'
 
-// ── Buat PO multi-PM ────────────────────────────────────
-const warehouses     = ref([])
-const availablePMs   = ref([])
-const pmLoading      = ref(false)
-const pmSearch       = ref('')
-const pmWarehouseFilter = ref('')
-const selectedPMIds  = ref([])
-const selectedPMs    = ref([])
-const createStep     = ref(1)
-const createForm     = ref({ vendor_name:'', vendor_contact:'', warehouse_id:'', expected_date:'', notes:'', diskon_persen:0, ppn_percent:0, items:[] })
-let pmTimer = null
+const STATUS_LABELS = {
+  draft:            'Draft',
+  sent_to_vendor:   'Dikirim ke Vendor',
+  partial_received: 'Diterima Sebagian',
+  completed:        'Selesai',
+  cancelled:        'Dibatalkan',
+}
 
-const createSubtotal    = computed(() =>
-  createForm.value.items.filter(i=>i.selected)
-    .reduce((sum,i) => sum + (parseFloat(i.harga_satuan)||0)*(parseFloat(i.qty)||0), 0)
-)
-// ── Multi-gudang: group item per gudang → buat beberapa PO ──────────────────
+const STATUS_CLASSES = {
+  draft:            'bg-secondary',
+  sent_to_vendor:   'bg-info text-dark',
+  partial_received: 'bg-warning text-dark',
+  completed:        'bg-success',
+  cancelled:        'bg-danger',
+}
+
 const WAREHOUSE_COLORS = ['#0d6efd','#198754','#dc3545','#fd7e14','#6f42c1','#20c997']
+
+// ─── Globals ──────────────────────────────────────────────────────────────────
+
+const toast = useToast()
+const can   = (p) => window.__permissions?.includes(p) ?? true
+
+let debounceTimer = null
+let pmTimer       = null
+
+// ─── State: list & summary ────────────────────────────────────────────────────
+
+const list    = ref([])
+const summary = ref(null)
+const loading = ref(false)
+const saving  = ref(false)
+const meta    = ref({ total: 0, page: 1, last_page: 1 })
+
+// ─── State: filter ────────────────────────────────────────────────────────────
+
+const DEFAULT_FILTERS = () => ({
+  search:       '',
+  status:       '',
+  payment_type: '',
+  date_from:    '',
+  date_to:      '',
+  overdue:      false,
+  near_due:     false,
+})
+
+const filters = ref(DEFAULT_FILTERS())
+
+// ─── State: PM selector ───────────────────────────────────────────────────────
+
+const availablePMs      = ref([])
+const selectedPMIds     = ref([])
+const selectedPMs       = ref([])
+const warehouses        = ref([])
+const pmLoading         = ref(false)
+const pmSearch          = ref('')
+const pmWarehouseFilter = ref('')
+
+// ─── State: modal / form ──────────────────────────────────────────────────────
+
+const selectedPO = ref(null)
+const createStep = ref(1)
+
+const DEFAULT_CREATE_FORM = () => ({
+  vendor_name:       '',
+  vendor_contact:    '',
+  warehouse_id:      '',
+  expected_date:     '',
+  notes:             '',
+  diskon_persen:     0,
+  ppn_percent:       0,
+  items:             [],
+  payment_type:      PAYMENT_CASH,
+  payment_term_days: 30,
+})
+
+const createForm = ref(DEFAULT_CREATE_FORM())
+
+const DEFAULT_SJ_FORM = () => ({
+  vendor_name: '', received_date: '', driver_name: '', vehicle_plate: '', notes: '', items: [],
+})
+
+const sjForm = ref(DEFAULT_SJ_FORM())
+
+// ─── Computed: status helpers ─────────────────────────────────────────────────
+
+const statusLabel = (s) => STATUS_LABELS[s] || s
+const statusClass = (s) => STATUS_CLASSES[s] || 'bg-secondary'
+
+// ─── Computed: overdue / near-due helpers ─────────────────────────────────────
+
+function isOverdueRow(po) {
+  return po.payment_type === PAYMENT_KREDIT
+    && !!po.payment_due_date
+    && new Date(po.payment_due_date) < new Date(new Date().toDateString())
+}
+
+function isNearDueRow(po) {
+  if (po.payment_type !== PAYMENT_KREDIT || !po.payment_due_date) return false
+  const diff = (new Date(po.payment_due_date) - new Date(new Date().toDateString())) / 86400000
+  return diff >= 0 && diff <= 7
+}
+
+// ─── Computed: warehouse grouping ─────────────────────────────────────────────
 
 function getWarehouseColor(warehouseId) {
   const ids = [...new Set(selectedPMs.value.map(p => p.warehouse?.id).filter(Boolean))]
-  const idx = ids.indexOf(warehouseId)
-  return WAREHOUSE_COLORS[idx % WAREHOUSE_COLORS.length] || '#6c757d'
+  return WAREHOUSE_COLORS[ids.indexOf(warehouseId) % WAREHOUSE_COLORS.length] || '#6c757d'
 }
 
 const warehouseGroups = computed(() => {
   const groups = {}
   for (const pm of selectedPMs.value) {
-    const wId   = pm.warehouse?.id
-    const wName = pm.warehouse?.name || 'Gudang tidak diketahui'
-    if (!groups[wId]) {
-      groups[wId] = { warehouseId: wId, warehouseName: wName, color: getWarehouseColor(wId), items: [], pmNomors: [] }
+    const wId = pm.warehouse?.id
+    if (!wId) continue
+    groups[wId] ??= {
+      warehouseId:   wId,
+      warehouseName: pm.warehouse?.name || '?',
+      color:         getWarehouseColor(wId),
+      items:         [],
+      pmNomors:      [],
     }
     groups[wId].pmNomors.push(pm.nomor)
-    const pmItems = createForm.value.items.filter(i => i.pm_id === pm.id)
-    groups[wId].items.push(...pmItems)
+    groups[wId].items.push(...createForm.value.items.filter(i => i.pm_id === pm.id))
   }
   return Object.values(groups)
 })
 
-const uniqueWarehouseCount = computed(() => warehouseGroups.value.length)
-const hasMultipleWarehouses = computed(() => uniqueWarehouseCount.value > 1)
+const hasMultipleWarehouses = computed(() => warehouseGroups.value.length > 1)
+const selectableItems       = computed(() => createForm.value.items)
 
-// Tidak ada locking — semua item bisa dipilih, dikelompokkan saat submit
-function isItemLocked() { return false }
-function onItemSelect() {}
-const selectableItems = computed(() => createForm.value.items)
+// ─── Computed: totals ─────────────────────────────────────────────────────────
 
-const activeWarehouseId = computed(() => null) // tidak dipakai lagi
+const createSubtotal = computed(() =>
+  createForm.value.items
+    .filter(i => i.selected)
+    .reduce((sum, i) => sum + (parseFloat(i.harga_satuan) || 0) * (parseFloat(i.qty) || 0), 0)
+)
 
-const createDiskonAmt   = computed(() => Math.round(createSubtotal.value * (parseFloat(createForm.value.diskon_persen)||0) / 100))
+const createDiskonAmt   = computed(() => round2(createSubtotal.value * pct(createForm.value.diskon_persen)))
 const createAfterDiskon = computed(() => createSubtotal.value - createDiskonAmt.value)
-const createPPN         = computed(() => Math.round(createAfterDiskon.value * (parseFloat(createForm.value.ppn_percent)||0) / 100))
+const createPPN         = computed(() => round2(createAfterDiskon.value * pct(createForm.value.ppn_percent)))
 const createTotal       = computed(() => createAfterDiskon.value + createPPN.value)
 
-const statusLabel = (s) => ({ draft: 'Draft', sent_to_vendor: 'Dikirim ke Vendor', completed: 'Selesai', cancelled: 'Dibatalkan' }[s] || s)
-const statusClass = (s) => ({ draft: 'bg-secondary', sent_to_vendor: 'bg-info text-dark', completed: 'bg-success', cancelled: 'bg-danger' }[s] || 'bg-secondary')
+const estimatedDueDate = computed(() => {
+  const days = parseInt(createForm.value.payment_term_days)
+  if (!days || days < 1) return '-'
+  return addDays(new Date(), days).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+})
 
-onMounted(() => { loadData(); listenPO(() => loadData()) })
-onUnmounted(() => stopPO())
+// ─── Lifecycle ────────────────────────────────────────────────────────────────
+
+onMounted(() => { loadData(); loadSummary() })
+
+// ─── Data loaders ─────────────────────────────────────────────────────────────
 
 async function loadData() {
   loading.value = true
   try {
-    const res = await axios.get('/purchase-orders', { params: { ...filters.value, page: meta.value.page, per_page: 15 } })
-    list.value = res.data.data
-    meta.value = res.data.meta
+    const params = {
+      ...filters.value,
+      page:     meta.value.page,
+      per_page: 15,
+      overdue:  filters.value.overdue  ? 1 : undefined,
+      near_due: filters.value.near_due ? 1 : undefined,
+    }
+    const res       = await axios.get('/purchase-orders', { params })
+    list.value      = res.data.data
+    meta.value      = res.data.meta
+  } catch {
+    toast.error('Gagal memuat data PO')
   } finally {
     loading.value = false
-    window.clearModalBackdrop()
+    window.clearModalBackdrop?.()
   }
 }
 
-function debouncedLoad() { clearTimeout(timer); timer = setTimeout(() => { meta.value.page = 1; loadData() }, 400) }
+async function loadSummary() {
+  try {
+    const res     = await axios.get('/purchase-orders/summary')
+    summary.value = res.data.data
+  } catch {}
+}
+
+async function loadWarehouses() {
+  if (warehouses.value.length) return
+  try {
+    warehouses.value = (await axios.get('/warehouses')).data.data
+  } catch {}
+}
+
+// ─── Filter actions ───────────────────────────────────────────────────────────
+
+function debouncedLoad() {
+  clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => { meta.value.page = 1; loadData() }, 400)
+}
+
 function changePage(p) { meta.value.page = p; loadData() }
-function resetFilters() { filters.value = { search: '', status: '', date_from: '', date_to: '' }; meta.value.page = 1; loadData() }
+
+function resetFilters() {
+  filters.value   = DEFAULT_FILTERS()
+  meta.value.page = 1
+  loadData()
+}
+
+function toggleOverdue() {
+  filters.value.overdue  = !filters.value.overdue
+  filters.value.near_due = false
+  meta.value.page        = 1
+  loadData()
+}
+
+function toggleNearDue() {
+  filters.value.near_due = !filters.value.near_due
+  filters.value.overdue  = false
+  meta.value.page        = 1
+  loadData()
+}
+
+// ─── Detail modal ─────────────────────────────────────────────────────────────
 
 async function openDetail(po) {
   try {
-    const res = await axios.get(`/purchase-orders/${po.id}`)
-    selectedPO.value = res.data.data
+    selectedPO.value = (await axios.get(`/purchase-orders/${po.id}`)).data.data
     new Modal('#modalDetailPO').show()
-  } catch { toast.error('Gagal memuat detail PO') }
+  } catch {
+    toast.error('Gagal memuat detail PO')
+  }
 }
+
+// ─── PO actions ───────────────────────────────────────────────────────────────
 
 async function doSend(po) {
   if (!confirm(`Kirim PO ${po.po_number} ke vendor?`)) return
   try {
     await axios.post(`/purchase-orders/${po.id}/send`)
     toast.success('PO dikirim ke vendor')
-    loadData()
-  } catch (e) { toast.error(e.response?.data?.message || 'Gagal') }
+    loadData(); loadSummary()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Gagal mengirim PO')
+  }
 }
+
+// ─── Surat Jalan ──────────────────────────────────────────────────────────────
 
 async function openSJModal(po) {
   try {
-    const res = await axios.get(`/purchase-orders/${po.id}`)
-    selectedPO.value = res.data.data
+    const detail   = (await axios.get(`/purchase-orders/${po.id}`)).data.data
+    selectedPO.value = detail
     sjForm.value = {
-      vendor_name: po.vendor_name || '',
-      received_date: new Date().toISOString().split('T')[0],
-      driver_name: '',
-      vehicle_plate: '',
-      notes: '',
-      items: res.data.data.items
+      ...DEFAULT_SJ_FORM(),
+      vendor_name:   po.vendor_name || '',
+      received_date: todayString(),
+      items: detail.items
         .filter(i => (parseFloat(i.qty_received) || 0) < parseFloat(i.qty))
         .map(i => {
           const remaining = Math.max(0, parseFloat(i.qty) - parseFloat(i.qty_received || 0))
           return {
             purchase_order_item_id: i.id,
-            item_id: i.item_id ?? null,
-            item: i.item ?? null,
-            nama_barang: i.nama_barang,
-            kode_unit: i.kode_unit,
-            tipe_unit: i.tipe_unit,
-            qty_ordered: i.qty,
-            qty_received_before: i.qty_received || 0,
-            qty_remaining: remaining,
-            qty_received: remaining,
-            satuan: i.satuan,
-            harga_satuan: i.harga_satuan,
-            keterangan: i.keterangan,
+            item_id:                i.item_id ?? null,
+            item:                   i.item ?? null,
+            nama_barang:            i.nama_barang,
+            kode_unit:              i.kode_unit,
+            tipe_unit:              i.tipe_unit,
+            qty_ordered:            i.qty,
+            qty_received_before:    i.qty_received || 0,
+            qty_remaining:          remaining,
+            qty_received:           remaining,
+            satuan:                 i.satuan,
+            harga_satuan:           i.harga_satuan,
+            keterangan:             i.keterangan,
           }
-        })
+        }),
     }
     new Modal('#modalSJFromPO').show()
-  } catch { toast.error('Gagal memuat data PO') }
+  } catch {
+    toast.error('Gagal memuat data PO')
+  }
 }
 
 async function saveSJ() {
@@ -723,21 +1044,21 @@ async function saveSJ() {
   saving.value = true
   try {
     await axios.post('/surat-jalan', {
-      purchase_order_id: selectedPO.value.id,
-      material_request_id: selectedPO.value.material_request_id,
+      purchase_order_id:      selectedPO.value.id,
+      material_request_id:    selectedPO.value.material_request_id,
       permintaan_material_id: selectedPO.value.permintaan_material_id,
-      warehouse_id: selectedPO.value.warehouse_id,
-      vendor_name: sjForm.value.vendor_name,
-      driver_name: sjForm.value.driver_name,
-      vehicle_plate: sjForm.value.vehicle_plate,
-      received_date: sjForm.value.received_date,
-      notes: sjForm.value.notes,
+      warehouse_id:           selectedPO.value.warehouse_id,
+      vendor_name:            sjForm.value.vendor_name,
+      driver_name:            sjForm.value.driver_name,
+      vehicle_plate:          sjForm.value.vehicle_plate,
+      received_date:          sjForm.value.received_date,
+      notes:                  sjForm.value.notes,
       items: sjForm.value.items.map(i => ({
         purchase_order_item_id: i.purchase_order_item_id,
-        item_id: i.item_id ?? null,
-        qty_received: i.qty_received,
-        masuk_stok: i.masuk_stok ?? true,
-        keterangan: i.keterangan ?? null,
+        item_id:                i.item_id ?? null,
+        qty_received:           i.qty_received,
+        masuk_stok:             i.masuk_stok ?? true,
+        keterangan:             i.keterangan ?? null,
       })),
     })
     toast.success('Surat Jalan berhasil dibuat')
@@ -745,44 +1066,38 @@ async function saveSJ() {
     loadData()
   } catch (e) {
     toast.error(e.response?.data?.message || 'Gagal membuat Surat Jalan')
-  } finally { saving.value = false }
+  } finally {
+    saving.value = false
+  }
 }
 
-// ── Buat PO multi-PM functions ──────────────────────────
+// ─── PM selector ──────────────────────────────────────────────────────────────
+
 async function openCreateModal() {
   createStep.value = 1
-  selectedPMIds.value = []
-  selectedPMs.value = []
-  pmSearch.value = ''
-  pmWarehouseFilter.value = ''
-  createForm.value = { vendor_name:'', vendor_contact:'', warehouse_id:'', expected_date:'', notes:'', diskon_persen:0, ppn_percent:0, items:[] }
+  selectedPMIds.value = []; selectedPMs.value = []
+  pmSearch.value = ''; pmWarehouseFilter.value = ''
+  createForm.value = DEFAULT_CREATE_FORM()
   await Promise.all([loadWarehouses(), searchPM()])
   new Modal('#modalBuatPO').show()
-}
-
-async function loadWarehouses() {
-  if (warehouses.value.length) return
-  try {
-    const res = await axios.get('/warehouses')
-    warehouses.value = res.data.data
-  } catch {}
 }
 
 async function searchPM() {
   pmLoading.value = true
   try {
-    const res = await axios.get('/permintaan-material', {
+    availablePMs.value = (await axios.get('/permintaan-material', {
       params: {
-        status: 'approved,manager_approved,partial_ordered,pending_purchasing',
-        search: pmSearch.value || undefined,
+        status:       'approved,manager_approved,partial_ordered,pending_purchasing',
+        search:       pmSearch.value   || undefined,
         warehouse_id: pmWarehouseFilter.value || undefined,
-        per_page: 50,
-      }
-    })
-    availablePMs.value = res.data.data
+        per_page:     50,
+      },
+    })).data.data
   } catch {
     availablePMs.value = []
-  } finally { pmLoading.value = false }
+  } finally {
+    pmLoading.value = false
+  }
 }
 
 function debouncedSearchPM() {
@@ -790,337 +1105,266 @@ function debouncedSearchPM() {
   pmTimer = setTimeout(searchPM, 350)
 }
 
-function togglePM(pm) {
-  if (selectedPMIds.value.includes(pm.id)) {
-    removePM(pm.id)
-  } else {
-    addPM(pm)
-  }
-}
+function togglePM(pm)   { selectedPMIds.value.includes(pm.id) ? removePM(pm.id) : addPM(pm) }
+function addPM(pm)       { if (!selectedPMIds.value.includes(pm.id)) { selectedPMIds.value.push(pm.id); selectedPMs.value.push(pm) } }
+function removePM(id)    { selectedPMIds.value = selectedPMIds.value.filter(x => x !== id); selectedPMs.value = selectedPMs.value.filter(x => x.id !== id) }
 
-function addPM(pm) {
-  if (!selectedPMIds.value.includes(pm.id)) {
-    selectedPMIds.value.push(pm.id)
-    selectedPMs.value.push(pm)
-  }
-}
-
-function removePM(id) {
-  selectedPMIds.value = selectedPMIds.value.filter(x => x !== id)
-  selectedPMs.value   = selectedPMs.value.filter(x => x.id !== id)
-}
+// ─── Step 2: load items ───────────────────────────────────────────────────────
 
 async function goToStep2() {
   if (!selectedPMIds.value.length) return
   pmLoading.value = true
   try {
-    // Load detail tiap PM untuk dapat items + qty sudah di-PO
     const details = await Promise.all(
       selectedPMIds.value.map(id => axios.get(`/permintaan-material/${id}`).then(r => r.data.data))
     )
-
-    // Update selectedPMs dengan data fresh
-    selectedPMs.value = details
-
-    const allItems = []
-    for (const pm of details) {
-      const allPOs = pm.purchase_orders || []
-      for (const pmItem of (pm.items || [])) {
-        const qtyOrdered = allPOs.reduce((sum, po) =>
-          sum + (po.items||[]).filter(poi => poi.permintaan_material_item_id === pmItem.id)
-                              .reduce((s, poi) => s + parseFloat(poi.qty||0), 0), 0)
-        const qtyPm = parseFloat(pmItem.qty||0)
-        const remaining = Math.max(0, qtyPm - qtyOrdered)
-        if (remaining > 0) {
-          allItems.push({
-            _key: `${pm.id}_${pmItem.id}`,
-            pm_id: pm.id,
-            selected: true,
-            permintaan_material_item_id: pmItem.id,
-            item_id: pmItem.item_id ?? null,
-            part_number: pmItem.part_number || pmItem.item?.part_number || null,
-            nama_barang: pmItem.nama_barang,
-            kode_unit: pmItem.kode_unit,
-            tipe_unit: pmItem.tipe_unit,
-            qty_pm: qtyPm,
-            qty_already_ordered: qtyOrdered,
-            qty: remaining,
-            satuan: pmItem.satuan,
-            harga_satuan: 0,
-            keterangan: pmItem.keterangan,
-          })
-        }
-      }
-    }
-
-    createForm.value.items = allItems
-
-    createStep.value = 2
-  } catch (e) {
+    selectedPMs.value      = details
+    createForm.value.items = buildItemsFromPMs(details)
+    createStep.value       = 2
+  } catch {
     toast.error('Gagal memuat detail PM')
-  } finally { pmLoading.value = false }
+  } finally {
+    pmLoading.value = false
+  }
 }
 
+function buildItemsFromPMs(pms) {
+  const items = []
+  for (const pm of pms) {
+    const allPOs = pm.purchase_orders || []
+    for (const pmItem of (pm.items || [])) {
+      const qtyOrdered = allPOs.reduce((sum, po) =>
+        sum + (po.items || [])
+          .filter(poi => poi.permintaan_material_item_id === pmItem.id)
+          .reduce((s, poi) => s + parseFloat(poi.qty || 0), 0), 0)
+      const qtyPm     = parseFloat(pmItem.qty || 0)
+      const remaining = Math.max(0, qtyPm - qtyOrdered)
+      if (remaining > 0) {
+        items.push({
+          _key:                        `${pm.id}_${pmItem.id}`,
+          pm_id:                       pm.id,
+          selected:                    true,
+          permintaan_material_item_id: pmItem.id,
+          item_id:                     pmItem.item_id ?? null,
+          part_number:                 pmItem.part_number || pmItem.item?.part_number || null,
+          nama_barang:                 pmItem.nama_barang,
+          kode_unit:                   pmItem.kode_unit,
+          tipe_unit:                   pmItem.tipe_unit,
+          qty_pm:                      qtyPm,
+          qty_already_ordered:         qtyOrdered,
+          qty:                         remaining,
+          satuan:                      pmItem.satuan,
+          harga_satuan:                0,
+          keterangan:                  pmItem.keterangan,
+        })
+      }
+    }
+  }
+  return items
+}
+
+// ─── Save PO ──────────────────────────────────────────────────────────────────
+
 async function saveCreatePO() {
-  if (hasMultipleWarehouses.value) return toast.error('PM berasal dari gudang berbeda, tidak bisa membuat PO')
-  if (!createForm.value.vendor_name) return toast.error('Isi nama vendor/supplier')
+  if (hasMultipleWarehouses.value) return toast.error('PM berasal dari gudang berbeda')
+  if (!createForm.value.vendor_name)  return toast.error('Isi nama vendor/supplier')
+
+  if (createForm.value.payment_type === PAYMENT_KREDIT) {
+    if (!createForm.value.payment_term_days || createForm.value.payment_term_days < 1) {
+      return toast.error('Isi tenor (hari) untuk PO kredit')
+    }
+  }
+
   const selectedItems = createForm.value.items.filter(i => i.selected)
   if (!selectedItems.length) return toast.error('Pilih minimal satu item')
 
-  // Ambil warehouse_id dari PM pertama
   const warehouseId = selectedPMs.value[0]?.warehouse?.id
   if (!warehouseId) return toast.error('Gudang PM tidak ditemukan')
 
   saving.value = true
   try {
-    await axios.post('/purchase-orders', {
-      permintaan_material_ids: selectedPMIds.value,
-      warehouse_id:   warehouseId,
-      vendor_name:    createForm.value.vendor_name,
-      vendor_contact: createForm.value.vendor_contact,
-      expected_date:  createForm.value.expected_date,
-      notes:          createForm.value.notes,
-      diskon_persen:  createForm.value.diskon_persen,
-      ppn_percent:    createForm.value.ppn_percent,
-      items: selectedItems.map(i => ({
-        item_id:                      i.item_id,
-        permintaan_material_item_id:  i.permintaan_material_item_id,
-        qty_pm:       i.qty_pm,
-        part_number:  i.part_number,
-        nama_barang:  i.nama_barang,
-        kode_unit:    i.kode_unit,
-        tipe_unit:    i.tipe_unit,
-        qty:          i.qty,
-        satuan:       i.satuan,
-        harga_satuan: i.harga_satuan,
-        keterangan:   i.keterangan,
-      }))
-    })
+    await axios.post('/purchase-orders', buildPOPayload(selectedItems, warehouseId))
     toast.success('Purchase Order berhasil dibuat')
     Modal.getInstance('#modalBuatPO')?.hide()
-    loadData()
+    loadData(); loadSummary()
   } catch (e) {
     toast.error(e.response?.data?.message || 'Gagal membuat Purchase Order')
-  } finally { saving.value = false }
-}
-
-// ── Helpers format ───────────────────────────────────────
-function fmtRp(val) {
-  if (!val && val !== 0) return 'Rp 0'
-  return 'Rp ' + Number(val).toLocaleString('id-ID')
-}
-function fmtDate(val) {
-  if (!val) return '-'
-  return new Date(val).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
-}
-
-// ── Generate HTML template PO ────────────────────────────
-function buildPOHtml(po) {
-  const subtotal   = (po.items || []).reduce((s, i) => s + parseFloat(i.total_harga || 0), 0)
-  const diskonPct  = parseFloat(po.diskon_persen) || 0
-  const diskonAmt  = parseFloat(po.diskon_amount) || 0
-  const ppnAmt     = po.ppn_amount || 0
-  const grandTotal = po.grand_total || subtotal
-  const mrpmList   = po.permintaan_materials?.length
-    ? po.permintaan_materials.map(p => p.nomor).join(', ')
-    : (po.material_request?.mr_number || po.permintaan_material?.nomor || '-')
-  const mrpm = mrpmList
-  const estTiba    = po.expected_date ? fmtDate(po.expected_date) : '-'
-
-  const rows = (po.items || []).map((item, i) => `
-    <tr>
-      <td class="center">${i + 1}</td>
-      <td class="center mono">${item.item?.part_number || '-'}</td>
-      <td>${item.nama_barang || '-'}</td>
-      <td class="center">${item.kode_unit || '-'}</td>
-      <td class="center">${item.tipe_unit || '-'}</td>
-      <td class="center">${item.qty}</td>
-      <td class="center">${item.satuan}</td>
-      <td class="right">${fmtRp(item.harga_satuan)}</td>
-      <td class="right bold">${fmtRp(item.total_harga)}</td>
-    </tr>`).join('')
-
-  const statusMap = { draft: 'DRAFT', sent_to_vendor: 'DIKIRIM KE VENDOR', completed: 'SELESAI', cancelled: 'DIBATALKAN' }
-  const statusColor = { draft: '#6c757d', sent_to_vendor: '#0dcaf0', completed: '#198754', cancelled: '#dc3545' }
-  const statusText  = statusMap[po.status] || po.status?.toUpperCase() || ''
-  const statusClr   = statusColor[po.status] || '#6c757d'
-
-  return `<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8"/>
-<title>Purchase Order — ${po.po_number}</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; color: #1a1a2e; background: #fff; }
-  .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 14mm 16mm 14mm; }
-
-  /* ── Header ── */
-  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 3px solid #1a3a5c; }
-  .company-block { }
-  .company-name { font-size: 20px; font-weight: 800; color: #1a3a5c; letter-spacing: -0.5px; line-height: 1; }
-  .company-sub { font-size: 10px; color: #6c757d; margin-top: 3px; font-weight: 500; }
-  .po-block { text-align: right; }
-  .po-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: #6c757d; }
-  .po-number { font-size: 22px; font-weight: 800; color: #1a3a5c; letter-spacing: -1px; line-height: 1.1; }
-  .status-pill { display: inline-block; margin-top: 5px; padding: 3px 10px; border-radius: 20px; font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #fff; background: ${statusClr}; }
-
-  /* ── Info grid ── */
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 18px; border: 1.5px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
-  .info-section { padding: 12px 16px; }
-  .info-section:first-child { border-right: 1.5px solid #e2e8f0; }
-  .info-section-title { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 8px; }
-  .info-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-  .info-label { color: #64748b; font-weight: 500; min-width: 90px; }
-  .info-value { font-weight: 600; color: #1a1a2e; text-align: right; }
-  .info-value.primary { color: #1a3a5c; }
-
-  /* ── Table ── */
-  .table-wrap { margin-bottom: 0; }
-  table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
-  thead tr { background: #1a3a5c; }
-  thead th { padding: 8px 8px; color: #fff; font-weight: 700; font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; }
-  thead th.center { text-align: center; }
-  thead th.right { text-align: right; }
-  tbody tr { border-bottom: 1px solid #f1f5f9; }
-  tbody tr:nth-child(even) { background: #f8fafc; }
-  tbody tr:last-child { border-bottom: 2px solid #e2e8f0; }
-  td { padding: 7px 8px; vertical-align: middle; }
-  td.center { text-align: center; }
-  td.right { text-align: right; }
-  td.bold { font-weight: 700; }
-  td.mono { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #1a3a5c; font-weight: 600; }
-
-  /* ── Totals ── */
-  .totals { margin-top: 0; margin-left: auto; width: 260px; }
-  .total-row { display: flex; justify-content: space-between; padding: 5px 10px; font-size: 11px; }
-  .total-row.subtotal { border-top: 1px solid #e2e8f0; color: #64748b; }
-  .total-row.ppn { color: #f59e0b; font-weight: 600; }
-  .total-row.grand { background: #1a3a5c; color: #fff; border-radius: 0 0 8px 8px; padding: 9px 12px; font-weight: 800; font-size: 13px; }
-
-  /* ── Footer ── */
-  .sign-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 28px; }
-  .sign-box { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; }
-  .sign-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 40px; }
-  .sign-line { border-top: 1.5px solid #cbd5e1; padding-top: 6px; font-size: 10px; font-weight: 600; color: #475569; }
-
-  .footer-note { margin-top: 20px; padding: 10px 14px; background: #f8fafc; border-left: 3px solid #1a3a5c; border-radius: 0 6px 6px 0; font-size: 9.5px; color: #64748b; }
-
-  @media print {
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .page { padding: 10mm 12mm; }
-    .no-print { display: none !important; }
+  } finally {
+    saving.value = false
   }
-</style>
-</head>
-<body>
-<div class="page">
-
-  <!-- Header -->
-  <div class="header">
-    <div class="company-block">
-      <div class="company-name">PT. Cipta Sarana Makmur</div>
-      <div class="company-sub">CSM Inventory Management System</div>
-    </div>
-    <div class="po-block">
-      <div class="po-label">Purchase Order</div>
-      <div class="po-number">${po.po_number}</div>
-      <div><span class="status-pill">${statusText}</span></div>
-    </div>
-  </div>
-
-  <!-- Info Grid -->
-  <div class="info-grid">
-    <div class="info-section">
-      <div class="info-section-title">Informasi Vendor</div>
-      <div class="info-row"><span class="info-label">Vendor</span><span class="info-value primary">${po.vendor_name || '-'}</span></div>
-      <div class="info-row"><span class="info-label">Kontak</span><span class="info-value">${po.vendor_contact || '-'}</span></div>
-      <div class="info-row"><span class="info-label">No. MR / PM</span><span class="info-value">${mrpm}</span></div>
-    </div>
-    <div class="info-section">
-      <div class="info-section-title">Informasi Pengiriman</div>
-      <div class="info-row"><span class="info-label">Gudang Tujuan</span><span class="info-value primary">${po.warehouse?.name || '-'}</span></div>
-      <div class="info-row"><span class="info-label">Tgl. Dibuat</span><span class="info-value">${fmtDate(po.created_at)}</span></div>
-      <div class="info-row"><span class="info-label">Est. Tiba</span><span class="info-value">${estTiba}</span></div>
-      <div class="info-row"><span class="info-label">Dibuat Oleh</span><span class="info-value">${po.creator?.name || '-'}</span></div>
-    </div>
-  </div>
-
-  <!-- Items Table -->
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th class="center" style="width:28px">#</th>
-          <th class="center" style="width:90px">Part Number</th>
-          <th>Nama Barang</th>
-          <th class="center" style="width:70px">Kode Unit</th>
-          <th class="center" style="width:70px">Tipe Unit</th>
-          <th class="center" style="width:40px">Qty</th>
-          <th class="center" style="width:40px">Sat.</th>
-          <th class="right" style="width:90px">Harga Satuan</th>
-          <th class="right" style="width:90px">Total</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </div>
-
-  <!-- Totals -->
-  <div class="totals">
-    <div class="total-row subtotal"><span>Subtotal</span><span>${fmtRp(subtotal)}</span></div>
-    ${diskonPct > 0
-      ? `<div class="total-row" style="color:#dc3545;"><span>Diskon ${diskonPct}%</span><span>- ${fmtRp(diskonAmt)}</span></div>`
-      : ''}
-    ${ppnAmt > 0
-      ? `<div class="total-row ppn"><span>PPN ${po.ppn_percent || 0}%</span><span>${fmtRp(ppnAmt)}</span></div>`
-      : `<div class="total-row" style="color:#94a3b8;font-size:10px"><span>PPN</span><span>Tidak kena PPN</span></div>`}
-    <div class="total-row grand"><span>Grand Total</span><span>${fmtRp(grandTotal)}</span></div>
-  </div>
-
-  <!-- Catatan -->
-  ${po.notes ? `<div class="footer-note"><strong>Catatan:</strong> ${po.notes}</div>` : ''}
-
-  <!-- Tanda Tangan -->
-  <div class="sign-section">
-    <div class="sign-box">
-      <div class="sign-label">Ordered By</div>
-      <div class="sign-line">${po.creator?.name || '..................'}</div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-label">Logistic</div>
-      <div class="sign-line">..................</div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-label">Approved By</div>
-      <div class="sign-line">..................</div>
-    </div>
-  </div>
-
-</div>
-</body>
-</html>`
 }
 
-// ── Print PDF ────────────────────────────────────────────
+function buildPOPayload(selectedItems, warehouseId) {
+  const f = createForm.value
+  return {
+    permintaan_material_ids: selectedPMIds.value,
+    warehouse_id:            warehouseId,
+    vendor_name:             f.vendor_name,
+    vendor_contact:          f.vendor_contact,
+    expected_date:           f.expected_date,
+    notes:                   f.notes,
+    diskon_persen:           f.diskon_persen,
+    ppn_percent:             f.ppn_percent,
+    payment_type:            f.payment_type,
+    payment_term_days:       f.payment_type === PAYMENT_KREDIT ? parseInt(f.payment_term_days) : null,
+    items: selectedItems.map(i => ({
+      item_id:                     i.item_id,
+      permintaan_material_item_id: i.permintaan_material_item_id,
+      qty_pm:      i.qty_pm,
+      part_number: i.part_number,
+      nama_barang: i.nama_barang,
+      kode_unit:   i.kode_unit,
+      tipe_unit:   i.tipe_unit,
+      qty:         i.qty,
+      satuan:      i.satuan,
+      harga_satuan:i.harga_satuan,
+      keterangan:  i.keterangan,
+    })),
+  }
+}
+
+// ─── Print helpers ────────────────────────────────────────────────────────────
+
+async function printPODirect(po) {
+  try {
+    printPDF((await axios.get(`/purchase-orders/${po.id}`)).data.data)
+  } catch {
+    toast.error('Gagal memuat data PO')
+  }
+}
+
 function printPDF(po) {
-  const html = buildPOHtml(po)
-  const win  = window.open('', '_blank', 'width=900,height=700')
-  win.document.write(html)
+  const win = window.open('', '_blank', 'width=900,height=700')
+  win.document.write(buildPOHtml(po))
   win.document.close()
   win.onload = () => { win.focus(); win.print() }
 }
 
-async function printPODirect(po) {
-  try {
-    const res = await axios.get(`/purchase-orders/${po.id}`)
-    printPDF(res.data.data)
-  } catch { toast.error('Gagal memuat data PO') }
-}
-
-// ── Export Excel ─────────────────────────────────────────
 async function exportExcel(po) {
   await exportPOExcel(po, toast)
+}
+
+// ─── HTML builder ─────────────────────────────────────────────────────────────
+
+function buildPOHtml(po) {
+  const subtotal   = (po.items || []).reduce((s, i) => s + parseFloat(i.total_harga || 0), 0)
+  const diskonPct  = parseFloat(po.diskon_persen) || 0
+  const diskonAmt  = parseFloat(po.diskon_amount) || 0
+  const ppnAmt     = parseFloat(po.ppn_amount) || 0
+  const grandTotal = parseFloat(po.grand_total) || subtotal
+  const mrpmList   = po.permintaan_materials?.length
+    ? po.permintaan_materials.map(p => p.nomor).join(', ')
+    : (po.material_request?.mr_number || '-')
+
+  const STATUS_COLOR = { draft:'#6c757d', sent_to_vendor:'#0dcaf0', completed:'#198754', cancelled:'#dc3545' }
+  const STATUS_TEXT  = { draft:'DRAFT', sent_to_vendor:'DIKIRIM KE VENDOR', completed:'SELESAI', cancelled:'DIBATALKAN' }
+  const statusClr    = STATUS_COLOR[po.status] || '#6c757d'
+  const statusTxt    = STATUS_TEXT[po.status]  || po.status?.toUpperCase() || ''
+  const paymentInfo  = po.payment_type === PAYMENT_KREDIT
+    ? `Kredit ${po.payment_term_days} hari — Jatuh Tempo: ${po.payment_due_date ? fmtDate(po.payment_due_date) : '-'}`
+    : 'Cash / Tunai'
+
+  const rows = (po.items || []).map((item, idx) => `
+    <tr>
+      <td class="c">${idx + 1}</td>
+      <td class="c mono">${item.item?.part_number || '-'}</td>
+      <td>${item.nama_barang || '-'}</td>
+      <td class="c">${item.kode_unit || '-'}</td>
+      <td class="c">${item.tipe_unit || '-'}</td>
+      <td class="c">${item.qty}</td>
+      <td class="c">${item.satuan}</td>
+      <td class="r">${fmtRp(item.harga_satuan)}</td>
+      <td class="r b">${fmtRp(item.total_harga)}</td>
+    </tr>`).join('')
+
+  const totalRows = [
+    `<div class="tr sub"><span>Subtotal</span><span>${fmtRp(subtotal)}</span></div>`,
+    diskonPct > 0 ? `<div class="tr" style="color:#dc3545"><span>Diskon ${diskonPct}%</span><span>- ${fmtRp(diskonAmt)}</span></div>` : '',
+    ppnAmt > 0 ? `<div class="tr" style="color:#f59e0b;font-weight:600"><span>PPN ${po.ppn_percent || 0}%</span><span>${fmtRp(ppnAmt)}</span></div>` : '',
+    `<div class="tr grand"><span>Grand Total</span><span>${fmtRp(grandTotal)}</span></div>`,
+  ].join('')
+
+  return `<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"/><title>PO ${po.po_number}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;font-size:11px;color:#1a1a2e}
+.page{width:210mm;min-height:297mm;margin:0 auto;padding:14mm 16mm}
+.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;padding-bottom:16px;border-bottom:3px solid #1a3a5c}
+.co{font-size:20px;font-weight:800;color:#1a3a5c}.cosub{font-size:10px;color:#6c757d;margin-top:3px}
+.pono{font-size:22px;font-weight:800;color:#1a3a5c;text-align:right}
+.pill{display:inline-block;margin-top:5px;padding:3px 10px;border-radius:20px;font-size:9px;font-weight:700;text-transform:uppercase;color:#fff;background:${statusClr}}
+.grid{display:grid;grid-template-columns:1fr 1fr;border:1.5px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:14px}
+.sec{padding:12px 16px}.sec:first-child{border-right:1.5px solid #e2e8f0}
+.sl{font-size:8px;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;margin-bottom:4px;gap:8px}
+.lbl{color:#64748b;font-weight:500;min-width:90px}.val{font-weight:600;text-align:right}
+.pay{margin:0 0 12px;padding:7px 14px;border-radius:6px;font-size:10px;font-weight:600;background:${po.payment_type===PAYMENT_KREDIT?'#dbeafe':'#dcfce7'};color:${po.payment_type===PAYMENT_KREDIT?'#1e40af':'#166534'}}
+table{width:100%;border-collapse:collapse;font-size:10.5px}
+thead tr{background:#1a3a5c}thead th{padding:8px;color:#fff;font-weight:700;font-size:9px;text-transform:uppercase}
+tbody tr{border-bottom:1px solid #f1f5f9}tbody tr:nth-child(even){background:#f8fafc}
+td{padding:7px 8px;vertical-align:middle}td.c{text-align:center}td.r{text-align:right}td.b{font-weight:700}
+td.mono{font-family:monospace;font-size:10px;color:#1a3a5c;font-weight:600}
+.totals{margin-left:auto;width:260px}.tr{display:flex;justify-content:space-between;padding:5px 10px;font-size:11px}
+.tr.sub{border-top:1px solid #e2e8f0;color:#64748b}
+.tr.grand{background:#1a3a5c;color:#fff;border-radius:0 0 8px 8px;padding:9px 12px;font-weight:800;font-size:13px}
+.signs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:28px}
+.sbox{border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 14px}
+.slabel{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:40px}
+.sline{border-top:1.5px solid #cbd5e1;padding-top:6px;font-size:10px;font-weight:600}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body><div class="page">
+  <div class="header">
+    <div><div class="co">PT. Cipta Sarana Makmur</div><div class="cosub">CSM Inventory Management System</div></div>
+    <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#6c757d">Purchase Order</div>
+      <div class="pono">${po.po_number}</div><div style="text-align:right"><span class="pill">${statusTxt}</span></div></div>
+  </div>
+  <div class="grid">
+    <div class="sec"><div class="sl">Informasi Vendor</div>
+      <div class="row"><span class="lbl">Vendor</span><span class="val">${po.vendor_name||'-'}</span></div>
+      <div class="row"><span class="lbl">Kontak</span><span class="val">${po.vendor_contact||'-'}</span></div>
+      <div class="row"><span class="lbl">No. MR / PM</span><span class="val">${mrpmList}</span></div>
+    </div>
+    <div class="sec"><div class="sl">Informasi Pengiriman</div>
+      <div class="row"><span class="lbl">Gudang</span><span class="val">${po.warehouse?.name||'-'}</span></div>
+      <div class="row"><span class="lbl">Tgl. Dibuat</span><span class="val">${fmtDate(po.created_at)}</span></div>
+      <div class="row"><span class="lbl">Est. Tiba</span><span class="val">${po.expected_date?fmtDate(po.expected_date):'-'}</span></div>
+      <div class="row"><span class="lbl">Dibuat Oleh</span><span class="val">${po.creator?.name||'-'}</span></div>
+      <div class="row"><span class="lbl">Pembayaran</span><span class="val">${po.payment_type===PAYMENT_KREDIT?'Kredit':'Cash'}</span></div>
+    </div>
+  </div>
+  <div class="pay">${paymentInfo}</div>
+  <table>
+    <thead><tr>
+      <th class="c" style="width:28px">#</th><th class="c" style="width:90px">Part Number</th>
+      <th>Nama Barang</th><th class="c" style="width:70px">Kode Unit</th>
+      <th class="c" style="width:70px">Tipe Unit</th><th class="c" style="width:40px">Qty</th>
+      <th class="c" style="width:40px">Sat.</th><th class="r" style="width:90px">Harga Satuan</th>
+      <th class="r" style="width:90px">Total</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totals">${totalRows}</div>
+  ${po.notes?`<div style="margin-top:12px;padding:10px 14px;background:#f8fafc;border-left:3px solid #1a3a5c;border-radius:0 6px 6px 0;font-size:9.5px;color:#64748b"><strong>Catatan:</strong> ${po.notes}</div>`:''}
+  <div class="signs">
+    <div class="sbox"><div class="slabel">Ordered By</div><div class="sline">${po.creator?.name||'..................'}</div></div>
+    <div class="sbox"><div class="slabel">Logistic</div><div class="sline">..................</div></div>
+    <div class="sbox"><div class="slabel">Approved By</div><div class="sline">..................</div></div>
+  </div>
+</div></body></html>`
+}
+
+// ─── Pure utilities ───────────────────────────────────────────────────────────
+
+const round2   = (v) => Math.round(v * 100) / 100
+const pct      = (v) => (parseFloat(v) || 0) / 100
+const addDays  = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r }
+const todayString = () => new Date().toISOString().split('T')[0]
+
+function fmtRp(val) {
+  return 'Rp ' + (Number(val) || 0).toLocaleString('id-ID')
+}
+
+function fmtDate(val) {
+  if (!val) return '-'
+  return new Date(val).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 </script>

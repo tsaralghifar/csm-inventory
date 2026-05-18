@@ -6,134 +6,219 @@ use App\Models\MaterialRequest;
 use App\Models\PermintaanMaterial;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\SupplierInvoice;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class PurchaseOrderService
 {
-    /**
-     * Ambil daftar Purchase Order dengan filter & paginasi.
-     */
+    // ─── Query / List ─────────────────────────────────────────────────────────
+
     public function list(Request $request): LengthAwarePaginator
     {
-        $query = PurchaseOrder::with(['materialRequest', 'permintaanMaterials', 'warehouse', 'creator'])
+        $query = PurchaseOrder::with(['materialRequest', 'permintaanMaterials', 'warehouse', 'creator', 'supplier'])
             ->withCount(['items', 'suratJalan'])
-            ->orderBy('created_at', 'desc');
+            ->orderByDesc('created_at');
 
-        if ($request->status) {
+        $this->applyFilters($query, $request);
+
+        return $query->paginate($request->integer('per_page', 15));
+    }
+
+    public function summary(): array
+    {
+        return [
+            'cash_count'     => PurchaseOrder::cash()->whereNotIn('status', [PurchaseOrder::STATUS_CANCELLED])->count(),
+            'kredit_count'   => PurchaseOrder::kredit()->whereNotIn('status', [PurchaseOrder::STATUS_CANCELLED])->count(),
+            'overdue_count'  => PurchaseOrder::overdue()->count(),
+            'near_due_count' => PurchaseOrder::nearDue(7)->count(),
+        ];
+    }
+
+    // ─── Mutations ────────────────────────────────────────────────────────────
+
+    public function create(array $validated, int $userId): PurchaseOrder
+    {
+        $pmIds = $this->normalizePmIds($validated);
+
+        $this->guardSource($validated, $pmIds);
+        $this->guardPmStatuses($pmIds);
+        $this->guardMrStatus($validated);
+        $this->guardPaymentType($validated);
+
+        return DB::transaction(function () use ($validated, $userId, $pmIds) {
+            $po = $this->buildPO($validated, $userId, $pmIds);
+
+            $this->attachItems($po, $validated['items']);
+            $this->syncPermintaanMaterials($po, $pmIds);
+            $this->updatePmStatuses($pmIds);
+            $this->updateMrStatus($validated);
+
+            return $po->load('items', 'warehouse', 'creator', 'materialRequest', 'permintaanMaterials', 'supplier');
+        });
+    }
+
+    public function sendToVendor(PurchaseOrder $po): PurchaseOrder
+    {
+        if ($po->status !== PurchaseOrder::STATUS_DRAFT) {
+            throw ValidationException::withMessages(['status' => 'PO sudah dikirim sebelumnya.']);
+        }
+
+        $po->update(['status' => PurchaseOrder::STATUS_SENT_TO_VENDOR]);
+
+        return $po->fresh();
+    }
+
+    public function markComplete(PurchaseOrder $po): PurchaseOrder
+    {
+        return DB::transaction(function () use ($po) {
+            $po->update([
+                'status'          => PurchaseOrder::STATUS_COMPLETED,
+                'delivery_status' => PurchaseOrder::STATUS_COMPLETED,
+            ]);
+
+            if ($po->isKredit()) {
+                $this->createSupplierInvoiceIfNeeded($po);
+            }
+
+            return $po->fresh();
+        });
+    }
+
+    /**
+     * Idempotent — aman dipanggil berkali-kali, tidak akan membuat duplikat.
+     */
+    public function createSupplierInvoiceIfNeeded(PurchaseOrder $po): ?SupplierInvoice
+    {
+        if (! $po->isKredit()) {
+            return null;
+        }
+
+        $existing = SupplierInvoice::where('purchase_order_id', $po->id)
+            ->whereIn('status', ['unpaid', 'partial'])
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        return SupplierInvoice::create([
+            'invoice_number'    => $this->generateInvoiceNumber(),
+            'internal_number'   => 'AUTO-' . $po->po_number,
+            'supplier_id'       => $po->supplier_id,
+            'purchase_order_id' => $po->id,
+            'subtotal'          => $po->total_amount,
+            'tax_amount'        => $po->ppn_amount,
+            'total_amount'      => $po->grand_total,
+            'paid_amount'       => 0,
+            'remaining_amount'  => $po->grand_total,
+            'invoice_date'      => now()->toDateString(),
+            'due_date'          => $po->payment_due_date ?? now()->addDays(30)->toDateString(),
+            'status'            => 'unpaid',
+            'created_by'        => $po->created_by,
+            'notes'             => "Auto-dibuat dari PO {$po->po_number} (kredit {$po->payment_term_days} hari)",
+        ]);
+    }
+
+    // ─── Private: filters ─────────────────────────────────────────────────────
+
+    private function applyFilters($query, Request $request): void
+    {
+        if ($request->filled('status')) {
             $statuses = array_filter(array_map('trim', explode(',', $request->status)));
             count($statuses) > 1
                 ? $query->whereIn('status', $statuses)
                 : $query->where('status', $statuses[0]);
         }
 
-        if ($request->exclude_delivery_completed) {
-            $query->where(function ($q) {
-                $q->whereNull('delivery_status')
-                  ->orWhere('delivery_status', '!=', 'completed');
-            })->whereNotIn('status', ['draft', 'cancelled']);
+        if ($request->filled('payment_type')) {
+            $query->where('payment_type', $request->payment_type);
         }
 
-        if ($request->search) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('po_number', 'ilike', "%{$search}%")
-                  ->orWhere('vendor_name', 'ilike', "%{$search}%");
-            });
+        if ($request->boolean('near_due')) {
+            $query->nearDue($request->integer('near_due_days', 7));
         }
 
-        if ($request->date_from) $query->whereDate('created_at', '>=', $request->date_from);
-        if ($request->date_to)   $query->whereDate('created_at', '<=', $request->date_to);
+        if ($request->boolean('overdue')) {
+            $query->overdue();
+        }
 
-        return $query->paginate($request->per_page ?? 15);
+        if ($request->boolean('exclude_delivery_completed')) {
+            $query->where(fn($q) => $q->whereNull('delivery_status')->orWhere('delivery_status', '!=', 'completed'))
+                  ->whereNotIn('status', [PurchaseOrder::STATUS_DRAFT, PurchaseOrder::STATUS_CANCELLED]);
+        }
+
+        if ($request->filled('search')) {
+            $q = $request->search;
+            $query->where(fn($sub) => $sub->where('po_number', 'ilike', "%{$q}%")
+                                         ->orWhere('vendor_name', 'ilike', "%{$q}%"));
+        }
+
+        if ($request->filled('date_from')) $query->whereDate('created_at', '>=', $request->date_from);
+        if ($request->filled('date_to'))   $query->whereDate('created_at', '<=', $request->date_to);
     }
 
-    /**
-     * Buat Purchase Order baru beserta item-itemnya.
-     */
-    public function create(array $validated, int $userId): PurchaseOrder
+    // ─── Private: builders ────────────────────────────────────────────────────
+
+    private function buildPO(array $validated, int $userId, Collection $pmIds): PurchaseOrder
     {
-        // Normalisasi PM IDs
-        $pmIds = $this->normalizePmIds($validated);
+        [$subtotal, $items] = $this->calculateItems($validated['items']);
 
-        $this->assertSourceExists($validated, $pmIds);
-        $this->validatePmStatuses($pmIds);
-        $this->validateMrStatus($validated);
+        [$diskonAmount, $totalAmount, $ppnAmount, $grandTotal] = $this->calculateTotals(
+            $subtotal,
+            (float) ($validated['diskon_persen'] ?? 0),
+            (float) ($validated['ppn_percent']   ?? 0),
+        );
 
-        return DB::transaction(function () use ($validated, $userId, $pmIds) {
-            [$subtotal, $items] = $this->calculateItems($validated['items']);
-
-            [$diskonAmount, $totalAmount, $ppnAmount, $grandTotal] = $this->calculateTotals(
-                $subtotal,
-                $validated['diskon_persen'] ?? 0,
-                $validated['ppn_percent'] ?? 0
-            );
-
-            $po = PurchaseOrder::create([
-                'po_number'              => PurchaseOrder::generateNumber(),
-                'material_request_id'    => $validated['material_request_id'] ?? null,
-                'permintaan_material_id' => $pmIds->first(),
-                'warehouse_id'           => $validated['warehouse_id'],
-                'created_by'             => $userId,
-                'status'                 => 'draft',
-                'vendor_name'            => $validated['vendor_name'],
-                'vendor_contact'         => $validated['vendor_contact'] ?? null,
-                'total_amount'           => $totalAmount,
-                'diskon_persen'          => $validated['diskon_persen'] ?? 0,
-                'diskon_amount'          => $diskonAmount,
-                'ppn_percent'            => $validated['ppn_percent'] ?? 0,
-                'ppn_amount'             => $ppnAmount,
-                'grand_total'            => $grandTotal,
-                'expected_date'          => $validated['expected_date'] ?? null,
-                'notes'                  => $validated['notes'] ?? null,
-            ]);
-
-            foreach ($items as $item) {
-                PurchaseOrderItem::create(array_merge($item, ['purchase_order_id' => $po->id]));
-            }
-
-            if ($pmIds->isNotEmpty()) {
-                $po->permintaanMaterials()->sync($pmIds->toArray());
-            }
-
-            $this->updatePmStatuses($pmIds);
-            $this->updateMrStatus($validated);
-
-            return $po->load('items', 'warehouse', 'creator', 'materialRequest', 'permintaanMaterials');
-        });
+        return PurchaseOrder::create([
+            'po_number'              => PurchaseOrder::generateNumber(),
+            'material_request_id'    => $validated['material_request_id'] ?? null,
+            'permintaan_material_id' => $pmIds->first(),
+            'warehouse_id'           => $validated['warehouse_id'],
+            'supplier_id'            => $validated['supplier_id'] ?? null,
+            'created_by'             => $userId,
+            'status'                 => PurchaseOrder::STATUS_DRAFT,
+            'vendor_name'            => $validated['vendor_name'],
+            'vendor_contact'         => $validated['vendor_contact'] ?? null,
+            'total_amount'           => $totalAmount,
+            'diskon_persen'          => $validated['diskon_persen'] ?? 0,
+            'diskon_amount'          => $diskonAmount,
+            'ppn_percent'            => $validated['ppn_percent'] ?? 0,
+            'ppn_amount'             => $ppnAmount,
+            'grand_total'            => $grandTotal,
+            'expected_date'          => $validated['expected_date'] ?? null,
+            'notes'                  => $validated['notes'] ?? null,
+            'payment_type'           => $validated['payment_type'] ?? PurchaseOrder::PAYMENT_CASH,
+            'payment_term_days'      => $validated['payment_term_days'] ?? null,
+            'payment_due_date'       => PurchaseOrder::calculateDueDate(
+                                            $validated['payment_type'] ?? null,
+                                            $validated['payment_term_days'] ?? null,
+                                        ),
+        ]);
     }
 
-    /**
-     * Kirim PO ke vendor (ubah status dari draft → sent_to_vendor).
-     */
-    public function sendToVendor(PurchaseOrder $purchaseOrder): PurchaseOrder
+    private function attachItems(PurchaseOrder $po, array $rawItems): void
     {
-        if ($purchaseOrder->status !== 'draft') {
-            throw ValidationException::withMessages(['status' => 'PO sudah dikirim sebelumnya']);
+        [, $items] = $this->calculateItems($rawItems);
+
+        foreach ($items as $item) {
+            PurchaseOrderItem::create(array_merge($item, ['purchase_order_id' => $po->id]));
         }
-
-        $purchaseOrder->update(['status' => 'sent_to_vendor']);
-
-        return $purchaseOrder->fresh();
     }
 
-    // ─── Private helpers ──────────────────────────────────────────────────────
-
-    private function normalizePmIds(array $validated): Collection
+    private function syncPermintaanMaterials(PurchaseOrder $po, Collection $pmIds): void
     {
-        $pmIds = collect($validated['permintaan_material_ids'] ?? []);
-
-        if (!empty($validated['permintaan_material_id'])) {
-            $pmIds->push($validated['permintaan_material_id']);
+        if ($pmIds->isNotEmpty()) {
+            $po->permintaanMaterials()->sync($pmIds->toArray());
         }
-
-        return $pmIds->unique()->values();
     }
 
-    private function assertSourceExists(array $validated, Collection $pmIds): void
+    // ─── Private: guards ──────────────────────────────────────────────────────
+
+    private function guardSource(array $validated, Collection $pmIds): void
     {
         if (empty($validated['material_request_id']) && $pmIds->isEmpty()) {
             throw ValidationException::withMessages([
@@ -142,56 +227,68 @@ class PurchaseOrderService
         }
     }
 
-    private function validatePmStatuses(Collection $pmIds): void
+    private function guardPmStatuses(Collection $pmIds): void
     {
-        $allowedStatuses = ['approved', 'manager_approved', 'pending_purchasing', 'purchasing', 'partial_ordered', 'completed'];
+        $allowed = ['approved', 'manager_approved', 'pending_purchasing', 'purchasing', 'partial_ordered', 'completed'];
 
         foreach ($pmIds as $pmId) {
             $pm = PermintaanMaterial::findOrFail($pmId);
 
-            if (!in_array($pm->status, $allowedStatuses)) {
+            if (! in_array($pm->status, $allowed, true)) {
                 throw ValidationException::withMessages([
                     'status' => "PM {$pm->nomor} harus sudah disetujui sebelum membuat PO.",
                 ]);
             }
 
-            // PM completed tapi ada item belum di-PO → reset ke partial_ordered
-            if ($pm->status === 'completed' && !$pm->isFullyOrdered()) {
+            if ($pm->status === 'completed' && ! $pm->isFullyOrdered()) {
                 $pm->update(['status' => 'partial_ordered']);
             }
         }
     }
 
-    private function validateMrStatus(array $validated): void
+    private function guardMrStatus(array $validated): void
     {
         if (empty($validated['material_request_id'])) return;
 
         $mr = MaterialRequest::findOrFail($validated['material_request_id']);
 
-        if (!in_array($mr->status, ['approved', 'manager_approved'])) {
+        if (! in_array($mr->status, ['approved', 'manager_approved'], true)) {
             throw ValidationException::withMessages([
-                'status' => 'MR harus sudah diapprove sebelum membuat PO',
+                'status' => 'MR harus sudah diapprove sebelum membuat PO.',
             ]);
         }
     }
 
+    private function guardPaymentType(array $validated): void
+    {
+        if (($validated['payment_type'] ?? PurchaseOrder::PAYMENT_CASH) === PurchaseOrder::PAYMENT_KREDIT) {
+            if (empty($validated['payment_term_days']) || (int) $validated['payment_term_days'] < 1) {
+                throw ValidationException::withMessages([
+                    'payment_term_days' => 'Tenor wajib diisi dan minimal 1 hari untuk PO kredit.',
+                ]);
+            }
+        }
+    }
+
+    // ─── Private: calculations ────────────────────────────────────────────────
+
     private function calculateItems(array $rawItems): array
     {
-        $subtotal = 0;
+        $subtotal = 0.0;
         $items    = [];
 
         foreach ($rawItems as $item) {
-            $harga        = $item['harga_satuan'] ?? 0;
-            $itemDiskon   = $item['diskon_persen'] ?? 0;
-            $gross        = $harga * $item['qty'];
-            $itemDiskonAmt = round($gross * $itemDiskon / 100, 2);
-            $net          = $gross - $itemDiskonAmt;
-            $subtotal    += $net;
+            $harga      = (float) ($item['harga_satuan'] ?? 0);
+            $diskonPct  = (float) ($item['diskon_persen'] ?? 0);
+            $gross      = $harga * (float) $item['qty'];
+            $diskonAmt  = round($gross * $diskonPct / 100, 2);
+            $net        = $gross - $diskonAmt;
+            $subtotal  += $net;
 
             $items[] = array_merge($item, [
                 'harga_satuan'  => $harga,
-                'diskon_persen' => $itemDiskon,
-                'diskon_amount' => $itemDiskonAmt,
+                'diskon_persen' => $diskonPct,
+                'diskon_amount' => $diskonAmt,
                 'total_harga'   => $net,
             ]);
         }
@@ -199,32 +296,60 @@ class PurchaseOrderService
         return [$subtotal, $items];
     }
 
-    private function calculateTotals(float $subtotal, float $diskonPct, float $ppnPercent): array
+    private function calculateTotals(float $subtotal, float $diskonPct, float $ppnPct): array
     {
-        $diskonAmount = round($subtotal * $diskonPct / 100, 2);
-        $totalAmount  = $subtotal - $diskonAmount;
-        $ppnAmount    = round($totalAmount * $ppnPercent / 100, 2);
-        $grandTotal   = $totalAmount + $ppnAmount;
+        $diskon     = round($subtotal * $diskonPct / 100, 2);
+        $afterDisk  = $subtotal - $diskon;
+        $ppn        = round($afterDisk * $ppnPct / 100, 2);
 
-        return [$diskonAmount, $totalAmount, $ppnAmount, $grandTotal];
+        return [$diskon, $afterDisk, $ppn, $afterDisk + $ppn];
     }
+
+    // ─── Private: status updaters ─────────────────────────────────────────────
 
     private function updatePmStatuses(Collection $pmIds): void
     {
-        foreach ($pmIds as $pmId) {
-            $pm = PermintaanMaterial::with('items')->find($pmId);
-            if ($pm) {
-                $newStatus = $pm->isFullyOrdered() ? 'purchasing' : 'partial_ordered';
-                $pm->update(['status' => $newStatus]);
-            }
-        }
+        PermintaanMaterial::with('items')
+            ->whereIn('id', $pmIds)
+            ->get()
+            ->each(fn($pm) => $pm->update([
+                'status' => $pm->isFullyOrdered() ? 'purchasing' : 'partial_ordered',
+            ]));
     }
 
     private function updateMrStatus(array $validated): void
     {
-        if (!empty($validated['material_request_id'])) {
+        if (! empty($validated['material_request_id'])) {
             MaterialRequest::find($validated['material_request_id'])
                 ?->update(['status' => 'purchasing']);
         }
+    }
+
+    // ─── Private: generators ──────────────────────────────────────────────────
+
+    private function generateInvoiceNumber(): string
+    {
+        $prefix = 'INV-' . now()->format('Ymd') . '-';
+
+        $last = SupplierInvoice::where('internal_number', 'like', "{$prefix}%")
+            ->orderByDesc('id')
+            ->value('internal_number');
+
+        $seq = $last ? ((int) substr($last, strlen($prefix)) + 1) : 1;
+
+        return sprintf('%s%04d', $prefix, $seq);
+    }
+
+    // ─── Private: normalizers ─────────────────────────────────────────────────
+
+    private function normalizePmIds(array $validated): Collection
+    {
+        return collect($validated['permintaan_material_ids'] ?? [])
+            ->when(
+                ! empty($validated['permintaan_material_id']),
+                fn($c) => $c->push($validated['permintaan_material_id'])
+            )
+            ->unique()
+            ->values();
     }
 }

@@ -31,7 +31,7 @@ class BonPengeluaranService
             ->with([
                 // Hanya ambil kolom yang ditampilkan di tabel list
                 'materialRequest:id,mr_number',
-                'permintaanMaterial:id,pm_number',
+                'permintaanMaterial:id,nomor',
                 'warehouse:id,name',
                 'creator:id,name',
             ])

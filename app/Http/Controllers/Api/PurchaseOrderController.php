@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\PurchaseOrderUpdated;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StorePurchaseOrderRequest;
 use App\Models\PurchaseOrder;
 use App\Services\PurchaseOrderService;
 use Illuminate\Http\JsonResponse;
@@ -12,94 +13,110 @@ use Illuminate\Http\Request;
 class PurchaseOrderController extends Controller
 {
     public function __construct(
-        private readonly PurchaseOrderService $purchaseOrderService
+        private readonly PurchaseOrderService $service,
     ) {}
 
     // GET /purchase-orders
     public function index(Request $request): JsonResponse
     {
-        $data = $this->purchaseOrderService->list($request);
+        $paginator = $this->service->list($request);
 
-        return response()->json([
-            'success' => true,
-            'data'    => $data->items(),
-            'meta'    => [
-                'total'     => $data->total(),
-                'page'      => $data->currentPage(),
-                'last_page' => $data->lastPage(),
-            ],
-        ]);
+        return $this->paginatedResponse($paginator);
     }
 
-    // POST /purchase-orders
-    public function store(Request $request): JsonResponse
+    // GET /purchase-orders/summary
+    public function summary(): JsonResponse
     {
-        $validated = $request->validate([
-            'material_request_id'                 => 'nullable|exists:material_requests,id',
-            'permintaan_material_ids'             => 'nullable|array|min:1',
-            'permintaan_material_ids.*'           => 'exists:permintaan_material,id',
-            'permintaan_material_id'              => 'nullable|exists:permintaan_material,id',
-            'warehouse_id'                        => 'required|exists:warehouses,id',
-            'vendor_name'                         => 'required|string|max:255',
-            'vendor_contact'                      => 'nullable|string|max:255',
-            'expected_date'                       => 'nullable|date',
-            'notes'                               => 'nullable|string',
-            'ppn_percent'                         => 'nullable|numeric|min:0|max:100',
-            'diskon_persen'                       => 'nullable|numeric|min:0|max:100',
-            'items'                               => 'required|array|min:1',
-            'items.*.item_id'                     => 'nullable|exists:items,id',
-            'items.*.permintaan_material_item_id' => 'nullable|exists:permintaan_material_items,id',
-            'items.*.qty_pm'                      => 'nullable|numeric|min:0',
-            'items.*.part_number'                 => 'nullable|string|max:100',
-            'items.*.nama_barang'                 => 'required|string|max:255',
-            'items.*.kode_unit'                   => 'nullable|string',
-            'items.*.tipe_unit'                   => 'nullable|string',
-            'items.*.qty'                         => 'required|numeric|min:0.01',
-            'items.*.satuan'                      => 'required|string',
-            'items.*.harga_satuan'                => 'nullable|numeric|min:0',
-            'items.*.diskon_persen'               => 'nullable|numeric|min:0|max:100',
-            'items.*.keterangan'                  => 'nullable|string',
-        ]);
-
-        $po = $this->purchaseOrderService->create($validated, $request->user()->id);
-
-        broadcast(new PurchaseOrderUpdated($po->fresh(), 'created'))->toOthers();
-
-        return response()->json([
-            'success' => true,
-            'data'    => $po,
-            'message' => 'Purchase Order berhasil dibuat',
-        ], 201);
+        return $this->successResponse($this->service->summary());
     }
 
-    // GET /purchase-orders/{id}
+    // GET /purchase-orders/{purchaseOrder}
     public function show(PurchaseOrder $purchaseOrder): JsonResponse
     {
-        return response()->json([
-            'success' => true,
-            'data'    => $purchaseOrder->load(
+        return $this->successResponse(
+            $purchaseOrder->load(
                 'items.item',
                 'items.permintaanMaterialItem',
                 'warehouse',
+                'supplier',
                 'creator',
                 'materialRequest',
                 'permintaanMaterials.items',
-                'suratJalan'
-            ),
-        ]);
+                'suratJalan',
+                'supplierInvoices',
+            )
+        );
     }
 
-    // POST /purchase-orders/{id}/send
+    // POST /purchase-orders
+    public function store(StorePurchaseOrderRequest $request): JsonResponse
+    {
+        $po = $this->service->create($request->validated(), $request->user()->id);
+
+        broadcast(new PurchaseOrderUpdated($po->fresh(), 'created'))->toOthers();
+
+        return $this->successResponse($po, 'Purchase Order berhasil dibuat.', 201);
+    }
+
+    // POST /purchase-orders/{purchaseOrder}/send
     public function sendToVendor(PurchaseOrder $purchaseOrder): JsonResponse
     {
-        $po = $this->purchaseOrderService->sendToVendor($purchaseOrder);
+        $po = $this->service->sendToVendor($purchaseOrder);
 
         broadcast(new PurchaseOrderUpdated($po->fresh(), 'sent_to_vendor'))->toOthers();
 
+        return $this->successResponse($po, 'PO berhasil dikirim ke vendor.');
+    }
+
+    // POST /purchase-orders/{purchaseOrder}/complete
+    public function complete(PurchaseOrder $purchaseOrder): JsonResponse
+    {
+        if (! $purchaseOrder->isCompletable()) {
+            return $this->errorResponse(
+                'PO harus berstatus "Dikirim ke Vendor" atau "Diterima Sebagian" untuk diselesaikan.',
+                422,
+            );
+        }
+
+        $po = $this->service->markComplete($purchaseOrder);
+
+        broadcast(new PurchaseOrderUpdated($po->fresh(), 'completed'))->toOthers();
+
+        $message = $po->isKredit()
+            ? 'PO selesai. Invoice hutang supplier dibuat otomatis.'
+            : 'PO selesai.';
+
+        return $this->successResponse($po->load('supplierInvoices'), $message);
+    }
+
+    // ─── Response helpers ─────────────────────────────────────────────────────
+
+    private function successResponse(mixed $data, string $message = '', int $status = 200): JsonResponse
+    {
+        $payload = ['success' => true, 'data' => $data];
+
+        if ($message) {
+            $payload['message'] = $message;
+        }
+
+        return response()->json($payload, $status);
+    }
+
+    private function errorResponse(string $message, int $status = 422): JsonResponse
+    {
+        return response()->json(['success' => false, 'message' => $message], $status);
+    }
+
+    private function paginatedResponse($paginator): JsonResponse
+    {
         return response()->json([
             'success' => true,
-            'data'    => $po,
-            'message' => 'PO dikirim ke vendor',
+            'data'    => $paginator->items(),
+            'meta'    => [
+                'total'     => $paginator->total(),
+                'page'      => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+            ],
         ]);
     }
 }

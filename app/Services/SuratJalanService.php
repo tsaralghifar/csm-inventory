@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Item;
+use App\Models\ItemPriceHistory;
 use App\Models\ItemStock;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -64,10 +65,13 @@ class SuratJalanService
                 'purchase_order_id' => $po->id,
                 'warehouse_id'      => $po->warehouse_id,
                 'created_by'        => $userId,
-                'status'            => 'confirmed',
+                'status'            => 'received',
+                'vendor_name'       => $validated['vendor_name'] ?? null,
+                'driver_name'       => $validated['driver_name'] ?? null,
+                'vehicle_plate'     => $validated['vehicle_plate'] ?? null,
                 'received_date'     => $validated['received_date'],
                 'notes'             => $validated['notes'] ?? null,
-                'received_by'       => $userId,
+                'received_by_user'  => $userId,
             ]);
 
             $this->processItems($validated['items'], $sj, $po, $userId);
@@ -102,6 +106,9 @@ class SuratJalanService
                 'purchase_order_item_id' => $poItem->id,
                 'item_id'                => $poItem->item_id,
                 'nama_barang'            => $poItem->nama_barang,
+                'kode_unit'              => $poItem->kode_unit ?? null,
+                'tipe_unit'              => $poItem->tipe_unit ?? null,
+                'qty_ordered'            => $poItem->qty,
                 'qty_received'           => $qtyReceived,
                 'satuan'                 => $poItem->satuan,
                 'harga_satuan'           => $poItem->harga_satuan ?? 0,
@@ -140,20 +147,35 @@ class SuratJalanService
             'avg_price' => round($newAvgPrice, 2),
         ]);
 
+        // Catat riwayat harga pembelian
+        ItemPriceHistory::create([
+            'item_id'          => $poItem->item_id,
+            'warehouse_id'     => $po->warehouse_id,
+            'purchase_price'   => $harga,
+            'avg_price_before' => $stock->avg_price,
+            'avg_price_after'  => round($newAvgPrice, 2),
+            'qty_received'     => $qty,
+            'reference_no'     => $po->po_number,
+            'source_type'      => 'purchase_order',
+            'created_by'       => $userId,
+            'transaction_date' => now()->toDateString(),
+        ]);
+
         StockMovement::create([
             'item_id'          => $poItem->item_id,
             'to_warehouse_id'  => $po->warehouse_id,
-            'type'             => 'purchase_in',
+            'type'             => 'in',
             'qty'              => $qty,
             'qty_before'       => $qtyBefore,
             'qty_after'        => $qtyBefore + $qty,
-            'reference_no'     => $sj->sj_number,
+            'reference_no'     => $sj->sj_number . '-' . $poItem->id,
+            'po_number'        => $po->po_number,
             'notes'            => "Penerimaan barang dari PO: {$po->po_number}",
             'moveable_type'    => SuratJalan::class,
             'moveable_id'      => $sj->id,
             'movement_date'    => now()->toDateString(),
             'created_by'       => $userId,
-            'harga_satuan'     => $harga,
+            'price'            => $harga,
         ]);
     }
 
@@ -193,6 +215,16 @@ class SuratJalanService
             default                    => 'completed',
         };
 
-        $po->update(['delivery_status' => $deliveryStatus]);
+        // Sync kolom status sesuai kondisi penerimaan barang
+        $poStatus = match ($deliveryStatus) {
+            'partial'   => PurchaseOrder::STATUS_PARTIAL_RECEIVED,
+            'completed' => PurchaseOrder::STATUS_COMPLETED,
+            default     => $po->status, // tidak berubah jika belum ada penerimaan
+        };
+
+        $po->update([
+            'delivery_status' => $deliveryStatus,
+            'status'          => $poStatus,
+        ]);
     }
 }

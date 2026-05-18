@@ -62,7 +62,7 @@
               </tr>
               <tr v-for="bon in list" :key="bon.id">
                 <td class="fw-semibold text-success">{{ bon.bon_number }}</td>
-                <td><small class="text-muted">{{ bon.material_request?.mr_number || bon.permintaan_material?.pm_number || '-' }}</small></td>
+                <td><small class="text-muted">{{ bon.material_request?.mr_number || bon.permintaan_material?.nomor || '-' }}</small></td>
                 <td><small>{{ bon.warehouse?.name }}</small></td>
                 <td><span class="badge bg-secondary rounded-pill">{{ bon.items_count }} item</span></td>
                 <td><small>{{ bon.received_by || '-' }}</small></td>
@@ -133,7 +133,7 @@
                 <table class="table table-sm table-borderless small mb-0">
                   <tbody>
                   <tr><td class="text-muted w-40">No. Bon</td><td class="fw-semibold">{{ selectedBon.bon_number }}</td></tr>
-                  <tr><td class="text-muted">No. MR / PM</td><td>{{ selectedBon.material_request?.mr_number || selectedBon.permintaan_material?.pm_number || '-' }}</td></tr>
+                  <tr><td class="text-muted">No. MR / PM</td><td>{{ selectedBon.material_request?.mr_number || selectedBon.permintaan_material?.nomor || '-' }}</td></tr>
                   <tr><td class="text-muted">Gudang</td><td>{{ selectedBon.warehouse?.name }}</td></tr>
                   <tr><td class="text-muted">No. PO / WO</td><td>{{ selectedBon.po_number || '-' }}</td></tr>
                   </tbody>
@@ -788,7 +788,7 @@ function printBon(bon) {
     draft:'#6b7280', pending_confirmation:'#d97706', confirmed:'#2563eb',
     rejected_by_mechanic:'#dc2626', issued:'#16a34a'
   }[bon.status] ?? '#6b7280'
-  const mrNum = bon.material_request?.mr_number || bon.permintaan_material?.pm_number || '-'
+  const mrNum = bon.material_request?.mr_number || bon.permintaan_material?.nomor || '-'
 
   const rows = (bon.items||[]).map((item,i) =>
     '<tr style="background:'+(i%2?'#f8fafc':'#fff')+'">'+
