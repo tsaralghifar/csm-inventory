@@ -225,8 +225,8 @@ async function loadMRs() {
   loading.value = true
   try {
     const res = await axios.get('/material-requests', { params: { ...filters.value, per_page: 15 } })
-    mrs.value = res.data.data
-    meta.value = res.data.meta
+    mrs.value = res.data.data ?? []
+    meta.value = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
   } catch (e) { toast.error('Gagal memuat data') }
   finally { loading.value = false }
 }

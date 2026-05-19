@@ -5,7 +5,7 @@
         <h5 class="fw-bold mb-0" style="color:#1a3a5c;">Permintaan Material</h5>
         <small class="text-muted">Permintaan sparepart & perlengkapan office</small>
       </div>
-      <button v-if="can('create-pm')" class="btn btn-csm-primary btn-sm" @click="openCreate">
+      <button v-if="can('create-pm')" class="btn btn-csm-primary btn-sm" @click="showDrawer = true">
         <i class="bi bi-plus-circle me-1"></i>Buat Permintaan
       </button>
     </div>
@@ -140,307 +140,39 @@
       </div>
     </div>
 
-    <!-- Modal Buat Permintaan -->
-    <div class="modal fade" id="modalCreatePM" tabindex="-1" data-bs-backdrop="static">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h6 class="modal-title"><i class="bi bi-clipboard-plus me-2"></i>Buat Permintaan Material</h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <!-- Pilihan Tipe -->
-            <div class="mb-3">
-              <label class="form-label small fw-semibold">Tipe Permintaan <span class="text-danger">*</span></label>
-              <div class="d-flex gap-2">
-                <div class="flex-grow-1 border rounded p-3 text-center"
-                  :class="form.type === 'part' ? 'border-primary bg-primary bg-opacity-10' : ''"
-                  style="cursor:pointer;" @click="form.type = 'part'">
-                  <i class="bi bi-tools fs-4 d-block mb-1 text-primary"></i>
-                  <div class="fw-semibold small">MR Part</div>
-                  <small class="text-muted">Sparepart & material alat berat</small>
-                </div>
-                <div class="flex-grow-1 border rounded p-3 text-center"
-                  :class="form.type === 'office' ? 'border-info bg-info bg-opacity-10' : ''"
-                  style="cursor:pointer;" @click="form.type = 'office'">
-                  <i class="bi bi-building fs-4 d-block mb-1 text-info"></i>
-                  <div class="fw-semibold small">MR Office</div>
-                  <small class="text-muted">Perlengkapan & kebutuhan kantor</small>
-                </div>
-              </div>
-              <div v-if="form.type === 'part'" class="alert alert-primary py-2 small mt-2 mb-0">
-                <i class="bi bi-info-circle me-1"></i>
-                Alur: <strong>Submit → Chief Mekanik → Manager → Admin HO → Bon Pengeluaran / PO</strong>
-              </div>
-              <div v-if="form.type === 'office'" class="alert alert-info py-2 small mt-2 mb-0">
-                <i class="bi bi-info-circle me-1"></i>
-                Alur: <strong>Submit → Admin HO → Bon Pengeluaran / Surat Jalan</strong>
-              </div>
+    <!-- Drawer Buat Permintaan (menggantikan modal lama) -->
+    <BuatPermintaanDrawer
+      v-model="showDrawer"
+      :warehouses="warehouses"
+      :categories="categories"
+      :all-units="allUnits"
+      @saved="loadData"
+    />
+
+    <!-- Modal Tolak (Vue-native, tanpa Bootstrap Modal JS) -->
+    <Teleport to="body">
+      <Transition name="fade-modal">
+        <div v-if="showRejectModal" class="modal-native-overlay" @click.self="showRejectModal = false">
+          <div class="modal-native-box">
+            <div class="modal-header">
+              <h6 class="modal-title text-danger"><i class="bi bi-x-circle me-2"></i>Tolak Permintaan</h6>
+              <button type="button" class="btn-close" @click="showRejectModal = false"></button>
             </div>
-
-            <div class="row g-2 mb-3">
-              <div class="col-md-6">
-                <label class="form-label small fw-semibold">Gudang / Site <span class="text-danger">*</span></label>
-                <select v-model="form.warehouse_id" class="form-select form-select-sm">
-                  <option value="">-- Pilih Gudang --</option>
-                  <optgroup label="Head Office">
-                    <option v-for="w in warehouses.filter(w => w.type === 'ho')" :key="w.id" :value="w.id">{{ w.name }}</option>
-                  </optgroup>
-                  <optgroup label="Site">
-                    <option v-for="w in warehouses.filter(w => w.type === 'site')" :key="w.id" :value="w.id">{{ w.name }}</option>
-                  </optgroup>
-                </select>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small fw-semibold">Tanggal Dibutuhkan</label>
-                <input v-model="form.needed_date" type="date" class="form-control form-control-sm" />
-              </div>
-              <div class="col-12">
-                <label class="form-label small fw-semibold">Catatan Umum</label>
-                <input v-model="form.notes" type="text" class="form-control form-control-sm" placeholder="Catatan tambahan..." />
-              </div>
+            <div class="modal-body">
+              <p class="small text-muted mb-2">Permintaan: <strong>{{ selectedPM?.nomor }}</strong></p>
+              <label class="form-label small fw-semibold">Alasan Penolakan <span class="text-danger">*</span></label>
+              <textarea v-model="rejectReason" class="form-control" rows="3" placeholder="Jelaskan alasan penolakan..."></textarea>
             </div>
-
-            <hr class="my-2" />
-
-            <div class="d-flex align-items-center justify-content-between mb-2">
-              <span class="fw-semibold small">Daftar Barang yang Diminta</span>
-              <button class="btn btn-outline-primary btn-sm" @click="addItem">
-                <i class="bi bi-plus me-1"></i>Tambah Barang
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary btn-sm" @click="showRejectModal = false">Batal</button>
+              <button type="button" class="btn btn-danger btn-sm" @click="doReject" :disabled="acting || !rejectReason">
+                <span v-if="acting" class="csm-spinner me-1"></span>Tolak Permintaan
               </button>
             </div>
-
-            <div v-for="(item, idx) in form.items" :key="idx" class="csm-card mb-2 border"
-              :class="item.is_new_item ? 'border-warning' : ''">
-              <div class="csm-card-body py-2 px-3">
-                <div class="d-flex align-items-center justify-content-between mb-2">
-                  <div class="d-flex align-items-center gap-2">
-                    <span class="badge bg-primary">Barang {{ idx + 1 }}</span>
-                    <span v-if="item.is_new_item" class="badge bg-warning text-dark">
-                      <i class="bi bi-plus-circle me-1"></i>Barang Baru
-                    </span>
-                  </div>
-                  <button v-if="form.items.length > 1" class="btn btn-xs btn-outline-danger" @click="removeItem(idx)">
-                    <i class="bi bi-trash"></i>
-                  </button>
-                </div>
-                <div class="row g-2">
-                  <div class="col-12">
-                    <label class="form-label small fw-semibold">Nama Barang / Deskripsi <span class="text-danger">*</span></label>
-
-                    <!-- Search sparepart jika gudang dipilih & bukan mode barang baru -->
-                    <div v-if="form.warehouse_id && !item.is_new_item" class="mb-2 position-relative">
-                      <div v-if="loadingStock" class="text-center py-2">
-                        <div class="csm-spinner"></div><small class="text-muted ms-2">Memuat data sparepart...</small>
-                      </div>
-                      <template v-else>
-                        <div class="input-group input-group-sm">
-                          <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
-                          <input
-                            v-model="item._searchStok"
-                            type="text"
-                            class="form-control form-control-sm border-start-0"
-                            placeholder="Cari nama part / part number..."
-                            @input="item._showDropdown = true"
-                            @focus="item._showDropdown = true"
-                            @blur="() => setTimeout(() => { item._showDropdown = false }, 200)"
-                            @click.stop
-                          />
-                          <button v-if="item._searchStok" type="button" class="btn btn-outline-secondary btn-sm"
-                            @mousedown.prevent="clearItemSearch(item)">
-                            <i class="bi bi-x"></i>
-                          </button>
-                        </div>
-                        <!-- Dropdown hasil pencarian -->
-                        <div v-if="item._showDropdown && item._searchStok"
-                          class="border rounded mt-1 shadow-sm"
-                          style="background:white; max-height:230px; overflow-y:auto; position:absolute; z-index:1050; width:100%;">
-                          <div v-if="filteredStocks(item).length">
-                            <div v-for="stok in filteredStocks(item)" :key="stok.id"
-                              class="d-flex align-items-center justify-content-between py-2 px-2 border-bottom"
-                              :style="stok.qty > 0 ? 'cursor:pointer;' : 'cursor:pointer;background:#fffbf0;'"
-                              @mousedown.prevent="pilihBarangDariStok(item, stok)">
-                              <div>
-                                <div class="fw-semibold small">{{ stok.item?.name }}</div>
-                                <small class="text-muted">
-                                  <span v-if="stok.item?.part_number" class="me-1 text-primary fw-semibold">{{ stok.item.part_number }}</span>
-                                  <span v-if="stok.item?.category?.name">· {{ stok.item.category.name }}</span>
-                                </small>
-                              </div>
-                              <div class="text-end ms-2 flex-shrink-0">
-                                <span class="badge" :class="stok.qty > 0 ? 'bg-success' : 'bg-warning text-dark'">
-                                  Stok: {{ stok.qty }} {{ stok.item?.unit }}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          <!-- Jika tidak ketemu, tawarkan tambah baru -->
-                          <div class="px-2 py-2 border-top bg-light">
-                            <div v-if="!filteredStocks(item).length" class="mb-2 text-center">
-                              <small class="text-muted">Tidak ditemukan: <strong>{{ item._searchStok }}</strong></small>
-                            </div>
-                            <button type="button" class="btn btn-warning btn-sm w-100"
-                              @mousedown.prevent="aktivasiBarangBaru(item)">
-                              <i class="bi bi-plus-circle me-1"></i>
-                              Barang "<strong>{{ item._searchStok }}</strong>" belum ada — Daftarkan sebagai Barang Baru
-                            </button>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
-
-                    <!-- Badge stok jika barang dipilih dari master -->
-                    <div v-if="!item.is_new_item && item._stok !== undefined" class="mb-1">
-                      <span class="badge" :class="item._stok > 0 ? 'bg-success' : 'bg-warning text-dark'">
-                        <i class="bi bi-box me-1"></i>
-                        {{ item._stok > 0 ? `Stok tersedia: ${item._stok} ${item.satuan}` : 'Stok kosong di gudang ini' }}
-                      </span>
-                    </div>
-
-                    <!-- Form barang baru (jika is_new_item = true) -->
-                    <div v-if="item.is_new_item" class="border border-warning rounded p-2 mb-2" style="background:#fffdf0;">
-                      <div class="d-flex align-items-center justify-content-between mb-2">
-                        <small class="fw-semibold text-warning"><i class="bi bi-exclamation-triangle me-1"></i>Data Barang Baru — akan otomatis terdaftar ke Master Barang</small>
-                        <button type="button" class="btn btn-xs btn-outline-secondary" @click="batalBarangBaru(item)">
-                          <i class="bi bi-arrow-left me-1"></i>Kembali ke Pencarian
-                        </button>
-                      </div>
-                      <div class="row g-2">
-                        <div class="col-md-6">
-                          <label class="form-label small fw-semibold">Part Number <span class="text-danger">*</span></label>
-                          <input v-model="item.new_part_number" type="text" class="form-control form-control-sm"
-                            :class="item._partExistsWarning ? 'border-danger' : ''"
-                            placeholder="Contoh: FLT-OLI-320, 1234567890..."
-                            @input="checkPartNumberExists(item)" />
-                          <!-- Warning: part number sudah ada di master, tawarkan pilih dari master -->
-                          <div v-if="item._partExistsWarning" class="mt-1 p-2 rounded border border-danger" style="background:#fff5f5;">
-                            <small class="text-danger fw-semibold d-block mb-1">
-                              <i class="bi bi-exclamation-circle me-1"></i>
-                              Part Number "{{ item.new_part_number }}" sudah ada di Master Barang.
-                            </small>
-                            <button type="button" class="btn btn-sm btn-danger w-100" @click="pakaiBarangMaster(item)">
-                              <i class="bi bi-box-seam me-1"></i>Gunakan Barang yang Sudah Ada
-                            </button>
-                          </div>
-                        </div>
-                        <div class="col-md-6">
-                          <label class="form-label small fw-semibold">Kategori <span class="text-danger">*</span></label>
-                          <select v-model="item.new_category_id" class="form-select form-select-sm">
-                            <option value="">-- Pilih Kategori --</option>
-                            <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
-                          </select>
-                        </div>
-                        <div class="col-md-6">
-                          <label class="form-label small fw-semibold">Brand / Merk</label>
-                          <input v-model="item.new_brand" type="text" class="form-control form-control-sm" placeholder="Contoh: CAT, Komatsu, Fleetguard..." />
-                        </div>
-                        <div class="col-md-6">
-                          <label class="form-label small fw-semibold">Stok Minimum</label>
-                          <input v-model="item.new_min_stock" type="number" class="form-control form-control-sm" min="0" placeholder="0" />
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Nama barang text input -->
-                    <input v-model="item.nama_barang" type="text" class="form-control form-control-sm"
-                      :class="item.is_new_item ? 'border-warning' : ''"
-                      :placeholder="form.type === 'part' ? 'Contoh: Filter Oli Excavator CAT 320...' : 'Contoh: Kertas HVS A4, Tinta Printer...'"
-                      :readonly="!item.is_new_item && item.item_id" />
-                  </div>
-                  <template v-if="form.type === 'part'">
-                    <div class="col-md-6">
-                      <label class="form-label small fw-semibold">Part Number</label>
-                      <input v-model="item.part_number" type="text" class="form-control form-control-sm"
-                        :readonly="!item.is_new_item && item.item_id"
-                        placeholder="Contoh: FLT-OLI-320, XAE-001..."
-                        :class="item.item_id && !item.is_new_item ? 'bg-light' : ''" />
-                      <div v-if="item.item_id && !item.is_new_item" class="form-text text-muted" style="font-size:0.7rem;">
-                        <i class="bi bi-lock me-1"></i>Dari master barang
-                      </div>
-                    </div>
-                    <div class="col-md-6 position-relative">
-                      <label class="form-label small fw-semibold">Kode Unit / Alat Berat</label>
-                      <input
-                        v-model="item._unitSearch"
-                        type="text"
-                        class="form-control form-control-sm"
-                        placeholder="Cari kode unit... (CSM 0038)"
-                        autocomplete="off"
-                        @input="filterUnitsForItem(item)"
-                        @focus="item._showUnitDrop = true; filterUnitsForItem(item)"
-                        @blur="hideUnitDrop(item)"
-                      />
-                      <ul v-if="item._showUnitDrop && item._unitDropResults.length"
-                        class="list-group position-absolute w-100 shadow-sm"
-                        style="z-index:9999;max-height:180px;overflow-y:auto;top:100%;left:0">
-                        <li
-                          v-for="u in item._unitDropResults" :key="u.id"
-                          class="list-group-item list-group-item-action py-1 px-2 small"
-                          style="cursor:pointer"
-                          @mousedown.prevent="selectUnitForItem(item, u)"
-                        >
-                          <strong>{{ u.unit_code }}</strong>
-                          <span class="text-muted ms-1">— {{ u.type_unit }} {{ u.brand }}</span>
-                        </li>
-                      </ul>
-                    </div>
-                    <div class="col-md-6">
-                      <label class="form-label small fw-semibold">Tipe Unit</label>
-                      <input v-model="item.tipe_unit" type="text" class="form-control form-control-sm" placeholder="Contoh: CAT 320D, ZX350" readonly :class="item.kode_unit ? 'bg-light' : ''" />
-                    </div>
-                  </template>
-                  <div class="col-md-4">
-                    <label class="form-label small fw-semibold">Jumlah <span class="text-danger">*</span></label>
-                    <input v-model="item.qty" type="number" class="form-control form-control-sm" min="0.01" step="0.01" placeholder="0" />
-                  </div>
-                  <div class="col-md-4">
-                    <label class="form-label small fw-semibold">Satuan <span class="text-danger">*</span></label>
-                    <input v-model="item.satuan" type="text" class="form-control form-control-sm" list="satuanList" placeholder="Pcs, Liter, Set..." />
-                    <datalist id="satuanList">
-                      <option value="Pcs" /><option value="Set" /><option value="Liter" /><option value="Kg" />
-                      <option value="Meter" /><option value="Roll" /><option value="Rim" /><option value="Botol" />
-                    </datalist>
-                  </div>
-                  <div class="col-md-4">
-                    <label class="form-label small fw-semibold">Keterangan</label>
-                    <input v-model="item.keterangan" type="text" class="form-control form-control-sm" placeholder="Info tambahan..." />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
-            <button type="button" class="btn btn-csm-primary btn-sm" @click="savePM" :disabled="saving">
-              <span v-if="saving" class="csm-spinner me-1"></span>Simpan sebagai Draft
-            </button>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Modal Tolak -->
-    <div class="modal fade" id="modalRejectPM" tabindex="-1">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h6 class="modal-title text-danger"><i class="bi bi-x-circle me-2"></i>Tolak Permintaan</h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <p class="small text-muted mb-2">Permintaan: <strong>{{ selectedPM?.nomor }}</strong></p>
-            <label class="form-label small fw-semibold">Alasan Penolakan <span class="text-danger">*</span></label>
-            <textarea v-model="rejectReason" class="form-control" rows="3" placeholder="Jelaskan alasan penolakan..."></textarea>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
-            <button type="button" class="btn btn-danger btn-sm" @click="doReject" :disabled="acting || !rejectReason">
-              <span v-if="acting" class="csm-spinner me-1"></span>Tolak Permintaan
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -448,66 +180,29 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useToast } from 'vue-toastification'
 import { useAuthStore } from '@/store/auth'
-import { Modal } from 'bootstrap'
 import axios from 'axios'
 import { useRealtime } from '@/composables/useRealtime'
+import BuatPermintaanDrawer from '@/pages/permintaan/BuatPermintaanDrawer.vue'
 
 const toast = useToast()
 const auth = useAuthStore()
 const { listenPM, stopPM } = useRealtime()
 const can = (p) => auth.hasPermission(p)
-const setTimeout = window.setTimeout
 
 const list = ref([])
 const warehouses = ref([])
 const categories = ref([])
 const allUnits = ref([])
 const loading = ref(false)
-const saving = ref(false)
 const acting = ref(false)
-const loadingStock = ref(false)
-const warehouseStocks = ref([])
 const meta = ref({ total: 0, page: 1, last_page: 1 })
 const filters = ref({ search: '', type: '', status: '', date_from: '', date_to: '' })
 const selectedPM = ref(null)
 const rejectReason = ref('')
-const form = ref(defaultForm())
+const showDrawer = ref(false)
+const showRejectModal = ref(false)
 let timer = null
 
-function defaultForm() {
-  return { type: 'part', warehouse_id: '', needed_date: '', notes: '', items: [defaultItem()] }
-}
-function defaultItem() {
-  return {
-    item_id: null, part_number: '', nama_barang: '', kode_unit: '', tipe_unit: '', qty: '', satuan: '', keterangan: '',
-    // Barang baru
-    is_new_item: false, new_part_number: '', new_category_id: '', new_brand: '', new_min_stock: 0,
-    // UI helpers
-    _searchStok: '', _showDropdown: false, _stok: undefined,
-    // Unit search helpers
-    _unitSearch: '', _showUnitDrop: false, _unitDropResults: [],
-    // Part number duplicate check
-    _partExistsWarning: false, _partExistsItem: null,
-  }
-}
-
-function filterUnitsForItem(item) {
-  const q = (item._unitSearch || '').toLowerCase()
-  item._unitDropResults = q.length < 1
-    ? allUnits.value.slice(0, 10)
-    : allUnits.value.filter(u =>
-        u.unit_code?.toLowerCase().includes(q) ||
-        u.type_unit?.toLowerCase().includes(q) ||
-        u.brand?.toLowerCase().includes(q)
-      ).slice(0, 15)
-}
-function hideUnitDrop(item) { setTimeout(() => { item._showUnitDrop = false }, 150) }
-function selectUnitForItem(item, u) {
-  item.kode_unit    = u.unit_code  || ''
-  item.tipe_unit    = u.type_unit  || ''
-  item._unitSearch  = u.unit_code  || ''
-  item._showUnitDrop = false
-}
 
 const statusLabel = (s) => ({
   draft: 'Draft',
@@ -553,9 +248,6 @@ onMounted(async () => {
   ])
   warehouses.value = warehousesRes.data.data
   categories.value = categoriesRes.data.data || categoriesRes.data
-  if (!auth.isSuperuser && !auth.isAdminHO && auth.userWarehouseId) {
-    form.value.warehouse_id = auth.userWarehouseId
-  }
   // Load units untuk search kode unit
   try {
     const unitsRes = await axios.get('/units', { params: { per_page: 999 } })
@@ -570,8 +262,8 @@ async function loadData() {
   loading.value = true
   try {
     const res = await axios.get('/permintaan-material', { params: { ...filters.value, page: meta.value.page, per_page: 15 } })
-    list.value = res.data.data
-    meta.value = res.data.meta
+    list.value = res.data.data ?? []
+    meta.value = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
   } finally { loading.value = false }
 }
 
@@ -579,155 +271,6 @@ function debouncedLoad() { clearTimeout(timer); timer = setTimeout(() => { meta.
 function changePage(p) { meta.value.page = p; loadData() }
 function resetFilters() { filters.value = { search: '', type: '', status: '', date_from: '', date_to: '' }; meta.value.page = 1; loadData() }
 
-function openCreate() {
-  form.value = defaultForm()
-  if (!auth.isSuperuser && !auth.isAdminHO && auth.userWarehouseId) {
-    form.value.warehouse_id = auth.userWarehouseId
-  }
-  new Modal('#modalCreatePM').show()
-}
-
-function addItem() { form.value.items.push(defaultItem()) }
-function removeItem(idx) { form.value.items.splice(idx, 1) }
-
-// Fetch semua sparepart + stok saat warehouse berubah (termasuk stok 0)
-watch(() => form.value.warehouse_id, async (warehouseId) => {
-  warehouseStocks.value = []
-  if (!warehouseId) return
-  loadingStock.value = true
-  try {
-    const res = await axios.get(`/warehouses/${warehouseId}/stocks`, { params: { per_page: 999 } })
-    warehouseStocks.value = (res.data.data || [])
-  } catch { warehouseStocks.value = [] }
-  finally { loadingStock.value = false }
-})
-
-// Aktifkan mode barang baru — isi nama dari teks pencarian
-function aktivasiBarangBaru(item) {
-  item.is_new_item = true
-  item.nama_barang = item._searchStok || ''
-  item.new_part_number = ''
-  item.new_category_id = ''
-  item.new_brand = ''
-  item.new_min_stock = 0
-  item._showDropdown = false
-  item._stok = undefined
-  item.item_id = null
-}
-
-// Batal mode barang baru — kembali ke pencarian
-function batalBarangBaru(item) {
-  item.is_new_item = false
-  item.nama_barang = ''
-  item.part_number = ''
-  item._searchStok = ''
-  item._showDropdown = false
-  item.item_id = null
-  item._stok = undefined
-  item._partExistsWarning = false
-  item._partExistsItem = null
-}
-
-// Cek real-time apakah part number yang diketik sudah ada di master
-let partCheckTimer = null
-async function checkPartNumberExists(item) {
-  item._partExistsWarning = false
-  item._partExistsItem = null
-  const pn = (item.new_part_number || '').trim()
-  if (pn.length < 2) return
-  clearTimeout(partCheckTimer)
-  partCheckTimer = setTimeout(async () => {
-    try {
-      const res = await axios.get('/items', { params: { search: pn, per_page: 5 } })
-      const found = (res.data.data || []).find(i =>
-        i.part_number?.toLowerCase() === pn.toLowerCase()
-      )
-      if (found) {
-        item._partExistsWarning = true
-        item._partExistsItem = found
-      }
-    } catch {}
-  }, 400)
-}
-
-// Pakai barang dari master (bukan buat baru)
-function pakaiBarangMaster(item) {
-  const master = item._partExistsItem
-  if (!master) return
-  item.is_new_item = false
-  item._partExistsWarning = false
-  item._partExistsItem = null
-  item.item_id = master.id
-  item.part_number = master.part_number || ''
-  item.nama_barang = master.name || ''
-  item.satuan = master.unit || ''
-  item._searchStok = master.name || ''
-  item._showDropdown = false
-  // Cek stok di gudang yang dipilih
-  const stokData = warehouseStocks.value.find(s => s.item_id === master.id)
-  item._stok = stokData?.qty ?? 0
-}
-
-// Clear search dan reset item
-function clearItemSearch(item) {
-  item._searchStok = ''
-  item._showDropdown = false
-  item.nama_barang = ''
-  item.part_number = ''
-  item.satuan = ''
-  item._stok = undefined
-  item.item_id = null
-}
-
-// Toggle stok picker (legacy - tidak digunakan lagi)
-function toggleStok(item) {
-  item._showStock = !item._showStock
-  if (item._showStock) item._searchStok = ''
-}
-
-// Filter stok berdasarkan pencarian
-function filteredStocks(item) {
-  const q = (item._searchStok || '').toLowerCase().trim()
-  if (!q) return warehouseStocks.value
-  return warehouseStocks.value.filter(s =>
-    s.item?.name?.toLowerCase().includes(q) ||
-    s.item?.part_number?.toLowerCase().includes(q) ||
-    s.item?.category?.name?.toLowerCase().includes(q)
-  )
-}
-
-// Pilih barang dari dropdown pencarian — auto-fill form item
-function pilihBarangDariStok(item, stok) {
-  item.item_id = stok.item?.id || null
-  item.part_number = stok.item?.part_number || ''
-  item.nama_barang = stok.item?.name || ''
-  item.satuan = stok.item?.unit || ''
-  item._stok = stok.qty
-  item._searchStok = stok.item?.name || ''
-  item._showDropdown = false
-  item.is_new_item = false
-}
-
-async function savePM() {
-  if (!form.value.type) return toast.error('Pilih tipe permintaan')
-  if (!form.value.warehouse_id) return toast.error('Pilih gudang terlebih dahulu')
-  for (const i of form.value.items) {
-    if (!i.nama_barang || !i.qty || !i.satuan) return toast.error('Lengkapi semua field barang yang wajib diisi')
-    if (i.is_new_item) {
-      if (!i.new_part_number) return toast.error(`Part Number wajib diisi untuk barang baru: "${i.nama_barang}"`)
-      if (!i.new_category_id) return toast.error(`Kategori wajib dipilih untuk barang baru: "${i.nama_barang}"`)
-    }
-  }
-  saving.value = true
-  try {
-    await axios.post('/permintaan-material', form.value)
-    toast.success('Permintaan material berhasil dibuat')
-    Modal.getInstance('#modalCreatePM')?.hide()
-    loadData()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'Gagal menyimpan')
-  } finally { saving.value = false }
-}
 
 async function doSubmit(pm) {
   const msg = pm.type === 'part' ? `Submit MR Part ${pm.nomor} ke Chief Mekanik?` : `Submit MR Office ${pm.nomor} ke Admin HO?`
@@ -772,7 +315,7 @@ async function doApproveHO(pm) {
 function openReject(pm) {
   selectedPM.value = pm
   rejectReason.value = ''
-  new Modal('#modalRejectPM').show()
+  showRejectModal.value = true
 }
 
 async function doReject() {
@@ -780,7 +323,7 @@ async function doReject() {
   try {
     await axios.post(`/permintaan-material/${selectedPM.value.id}/reject`, { reason: rejectReason.value })
     toast.success('Permintaan ditolak')
-    Modal.getInstance('#modalRejectPM')?.hide()
+    showRejectModal.value = false
     loadData()
   } catch (e) { toast.error(e.response?.data?.message || 'Gagal') } finally { acting.value = false }
 }
@@ -969,3 +512,23 @@ async function printPMDirect(pm) {
 }
 
 </script>
+
+<style scoped>
+.modal-native-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 1055;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.modal-native-box {
+  background: #fff;
+  border-radius: 12px;
+  width: 100%; max-width: 480px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.2);
+}
+.fade-modal-enter-active,
+.fade-modal-leave-active { transition: opacity .2s ease; }
+.fade-modal-enter-from,
+.fade-modal-leave-to     { opacity: 0; }
+</style>

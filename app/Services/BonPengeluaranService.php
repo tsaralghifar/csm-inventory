@@ -363,6 +363,14 @@ class BonPengeluaranService
             $qtyBefore = $stock->qty;
             $stock->decrement('qty', $qty);
 
+            // Simpan snapshot harga saat pengeluaran agar riwayat akurat.
+            // Prioritas: avg_price item_stocks → price master item → 0
+            $hargaSnapshot = (float) ($stock->avg_price ?? 0);
+            if ($hargaSnapshot <= 0) {
+                $hargaSnapshot = (float) (\App\Models\Item::find($bonItem->item_id)?->price ?? 0);
+            }
+            $bonItem->update(['harga_satuan' => $hargaSnapshot]);
+
             StockMovement::create([
                 'item_id'           => $bonItem->item_id,
                 'from_warehouse_id' => $bon->warehouse_id,

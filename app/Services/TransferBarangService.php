@@ -103,7 +103,7 @@ class TransferBarangService
             $itemIndex = 1;
 
             foreach ($validated['items'] as $itemData) {
-                $mrItem   = MaterialRequestItem::findOrFail($itemData['mr_item_id']);
+                $mrItem   = MaterialRequestItem::findOrFail($itemData['id']);
                 $qtySent  = (float) $itemData['qty_sent'];
 
                 if ($qtySent <= 0) continue;

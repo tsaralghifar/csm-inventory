@@ -925,8 +925,8 @@ async function loadData() {
       near_due: filters.value.near_due ? 1 : undefined,
     }
     const res       = await axios.get('/purchase-orders', { params })
-    list.value      = res.data.data
-    meta.value      = res.data.meta
+    list.value      = res.data.data ?? []
+    meta.value      = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
   } catch {
     toast.error('Gagal memuat data PO')
   } finally {

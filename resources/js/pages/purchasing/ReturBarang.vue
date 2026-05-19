@@ -402,7 +402,7 @@ const form = ref({
 
 onMounted(async () => {
   const res = await axios.get('/warehouses')
-  warehouses.value = res.data.data
+  warehouses.value = res.data.data ?? []
   loadData()
   listenRetur(() => loadData())
 })
@@ -413,8 +413,8 @@ async function loadData() {
   loading.value = true
   try {
     const res = await axios.get('/retur-barang', { params: { ...filters.value, page: meta.value.page } })
-    returs.value = res.data.data
-    meta.value   = res.data.meta
+    returs.value = res.data.data ?? []
+    meta.value = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
   } catch { toast.error('Gagal memuat data') } finally { loading.value = false }
 }
 
@@ -439,7 +439,7 @@ async function searchPO() {
       const res = await axios.get('/purchase-orders', {
         params: { search: poSearch.value, per_page: 8 }
       })
-      poResults.value = res.data.data
+      poResults.value = res.data.data ?? []
     } catch {}
   }, 300)
 }
@@ -541,7 +541,7 @@ async function saveRetur() {
 async function viewDetail(r) {
   try {
     const res = await axios.get(`/retur-barang/${r.id}`)
-    detailRetur.value = res.data.data
+    detailRetur.value = res.data.data ?? []
     new Modal('#modalDetailRetur').show()
   } catch { toast.error('Gagal memuat detail') }
 }

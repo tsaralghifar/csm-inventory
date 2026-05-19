@@ -499,8 +499,8 @@ async function loadData() {
     const res = await axios.get('/bon-pengeluaran', {
       params: { ...filters.value, page: meta.value.page, per_page: 15 }
     })
-    list.value = res.data.data
-    meta.value = res.data.meta
+    list.value = res.data.data ?? []
+    meta.value = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
   } finally {
     loading.value = false
     window.clearModalBackdrop?.()
@@ -523,7 +523,7 @@ function resetFilters() {
 async function openDetail(bon) {
   try {
     const res = await axios.get(`/bon-pengeluaran/${bon.id}`)
-    selectedBon.value = res.data.data
+    selectedBon.value = res.data.data ?? []
     new Modal('#modalDetailBon').show()
   } catch { toast.error('Gagal memuat detail') }
 }
@@ -551,7 +551,7 @@ function makeEditRow(item = null) {
 async function openEditItems(bon) {
   try {
     const res = await axios.get(`/bon-pengeluaran/${bon.id}`)
-    editBon.value     = res.data.data
+    editBon.value = res.data.data ?? []
     warehouseId.value = res.data.data.warehouse_id
     editItems.value   = res.data.data.items.map(i => makeEditRow(i))
     // Load stok untuk item yang sudah ada

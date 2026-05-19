@@ -27,4 +27,9 @@ class PermintaanMaterialItem extends Model
     {
         return $this->belongsTo(Item::class);
     }
+
+    public function purchaseOrderItems()
+    {
+        return $this->hasMany(PurchaseOrderItem::class, 'permintaan_material_item_id');
+    }
 }

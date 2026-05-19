@@ -525,8 +525,8 @@ async function loadData() {
       params.status = statusVal
     }
     const res = await axios.get('/surat-jalan', { params })
-    list.value = res.data.data
-    meta.value = res.data.meta
+    list.value = res.data.data ?? []
+    meta.value = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
   } catch {
     toast.error('Gagal memuat data')
   } finally {
@@ -543,7 +543,7 @@ function resetFilters()  { filters.value = { search: '', status: '', date_from: 
 async function openDetail(sj) {
   try {
     const res = await axios.get(`/surat-jalan/${sj.id}`)
-    selectedSJ.value = res.data.data
+    selectedSJ.value = res.data.data ?? []
     new Modal('#modalDetailSJ').show()
   } catch { toast.error('Gagal memuat detail') }
 }

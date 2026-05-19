@@ -21,10 +21,3 @@ class ToolboxOpnameItem extends Model {
     public function opname() { return $this->belongsTo(ToolboxOpname::class,'toolbox_opname_id'); }
     public function item() { return $this->belongsTo(Item::class); }
 }
-
-class AuditLog extends Model {
-    public $timestamps = false;
-    protected $fillable = ['user_id','action','model_type','model_id','old_values','new_values','ip_address','user_agent','created_at'];
-    protected $casts = ['old_values'=>'array','new_values'=>'array','created_at'=>'datetime'];
-    public function user() { return $this->belongsTo(User::class); }
-}

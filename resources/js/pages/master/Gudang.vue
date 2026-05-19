@@ -158,7 +158,7 @@ async function loadWarehouses() {
   loading.value = true
   try {
     const res = await axios.get('/warehouses')
-    warehouses.value = res.data.data
+    warehouses.value = res.data.data ?? []
   } catch (e) { toast.error('Gagal memuat data gudang') }
   finally { loading.value = false }
 }

@@ -526,7 +526,7 @@ async function loadMR() {
   loading.value = true
   try {
     const res = await axios.get(`/transfer-barang/${route.params.id}`)
-    mr.value = res.data.data
+    mr.value = res.data.data ?? []
   } catch { toast.error('Data tidak ditemukan') } finally {
     loading.value = false
     // Pastikan tidak ada backdrop yang tersisa setelah reload

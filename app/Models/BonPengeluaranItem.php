@@ -9,10 +9,13 @@ class BonPengeluaranItem extends Model
     protected $table = 'bon_pengeluaran_items';
 
     protected $fillable = [
-        'bon_pengeluaran_id', 'item_id', 'nama_barang', 'qty', 'satuan', 'keterangan',
+        'bon_pengeluaran_id', 'item_id', 'nama_barang', 'qty', 'satuan', 'keterangan', 'harga_satuan',
     ];
 
-    protected $casts = ['qty' => 'decimal:2'];
+    protected $casts = [
+        'qty'          => 'decimal:2',
+        'harga_satuan' => 'decimal:2',
+    ];
 
     public function bonPengeluaran()
     {

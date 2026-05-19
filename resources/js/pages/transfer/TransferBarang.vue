@@ -414,7 +414,7 @@ const statusClass = (s) => ({
 
 onMounted(async () => {
   const res = await axios.get('/warehouses')
-  warehouses.value = res.data.data
+  warehouses.value = res.data.data ?? []
   loadData()
 
   // Dengarkan update real-time dari user lain
@@ -436,8 +436,8 @@ async function loadData() {
   loading.value = true
   try {
     const res = await axios.get('/transfer-barang', { params: { ...filters.value, page: meta.value.page, per_page: 15 } })
-    list.value = res.data.data
-    meta.value = res.data.meta
+    list.value = res.data.data ?? []
+    meta.value = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
   } finally { loading.value = false }
 }
 

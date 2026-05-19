@@ -147,6 +147,9 @@
               </div>
               <div class="col-md-3 text-end">
                 <span class="badge bg-info text-dark">Total: {{ historyMeta.total }} bon pengeluaran</span>
+                <span v-if="grandTotalHistory > 0" class="badge bg-danger ms-2">
+                  Total Pengeluaran: {{ $formatCurrency(grandTotalHistory) }}
+                </span>
               </div>
             </div>
 
@@ -181,11 +184,13 @@
                     <table class="table table-sm mb-0">
                       <thead class="table-light">
                         <tr>
-                          <th class="ps-3" style="width:5%">#</th>
-                          <th style="width:40%">Nama Barang</th>
-                          <th style="width:20%">Part Number</th>
-                          <th class="text-end" style="width:15%">Qty</th>
-                          <th style="width:10%">Satuan</th>
+                          <th class="ps-3" style="width:4%">#</th>
+                          <th style="width:32%">Nama Barang</th>
+                          <th style="width:18%">Part Number</th>
+                          <th class="text-end" style="width:8%">Qty</th>
+                          <th style="width:8%">Satuan</th>
+                          <th class="text-end" style="width:14%">Harga Satuan</th>
+                          <th class="text-end" style="width:14%">Subtotal</th>
                           <th style="width:10%">Keterangan</th>
                         </tr>
                       </thead>
@@ -196,9 +201,20 @@
                           <td><code class="small text-primary">{{ item.item?.part_number || '-' }}</code></td>
                           <td class="text-end fw-bold small">{{ item.qty }}</td>
                           <td class="text-muted small">{{ item.satuan }}</td>
+                          <td class="text-end small">{{ getHargaSatuan(item) > 0 ? $formatCurrency(getHargaSatuan(item)) : '-' }}</td>
+                          <td class="text-end small fw-semibold text-success">
+                            {{ bonItemSubtotal(item) > 0 ? $formatCurrency(bonItemSubtotal(item)) : '-' }}
+                          </td>
                           <td><small class="text-muted">{{ item.keterangan || '-' }}</small></td>
                         </tr>
                       </tbody>
+                      <tfoot v-if="bonTotal(bon) > 0">
+                        <tr class="table-light border-top">
+                          <td colspan="6" class="text-end fw-bold small pe-2">Total Pengeluaran BON ini:</td>
+                          <td class="text-end fw-bold small text-danger">{{ $formatCurrency(bonTotal(bon)) }}</td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </div>
@@ -224,7 +240,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import { useRealtime } from '@/composables/useRealtime'
 import { Modal } from 'bootstrap'
@@ -256,6 +272,29 @@ async function openHistory(u) {
   await loadHistory()
 }
 
+function getHargaSatuan(item) {
+  // Prioritas 1: harga_satuan yang disimpan saat bon dikeluarkan (snapshot)
+  if (parseFloat(item.harga_satuan) > 0) return parseFloat(item.harga_satuan)
+  // Prioritas 2: avg_price dari item_stocks (ambil yang pertama tersedia)
+  const stocks = item.item?.itemStocks || []
+  const avgPrice = stocks.find(s => parseFloat(s.avg_price) > 0)?.avg_price
+  if (parseFloat(avgPrice) > 0) return parseFloat(avgPrice)
+  // Prioritas 3: harga master barang
+  return parseFloat(item.item?.price) || 0
+}
+
+function bonItemSubtotal(item) {
+  return getHargaSatuan(item) * (parseFloat(item.qty) || 0)
+}
+
+function bonTotal(bon) {
+  return (bon.items || []).reduce((sum, item) => sum + bonItemSubtotal(item), 0)
+}
+
+const grandTotalHistory = computed(() =>
+  historyList.value.reduce((sum, bon) => sum + bonTotal(bon), 0)
+)
+
 async function loadHistory() {
   if (!selectedUnit.value) return
   historyLoading.value = true
@@ -263,8 +302,8 @@ async function loadHistory() {
     const res = await axios.get(`/units/${selectedUnit.value.id}/parts-history`, {
       params: { ...historyFilter.value, page: historyMeta.value.page, per_page: 10 }
     })
-    historyList.value = res.data.data
-    historyMeta.value = res.data.meta
+    historyList.value = res.data.data ?? []
+    historyMeta.value = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
   } catch { toast.error('Gagal memuat riwayat part') }
   finally { historyLoading.value = false }
 }
