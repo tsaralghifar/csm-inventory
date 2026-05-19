@@ -203,6 +203,8 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
     Route::post('/permintaan-material/{pm}/approve-ho',                    [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'approveHO']);
     Route::post('/permintaan-material/{pm}/submit-purchasing',             [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'submitPurchasing']);
     Route::post('/permintaan-material/{pm}/reject',                        [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'reject']);
+    Route::put('/permintaan-material/{pm}/items/{item}',                   [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'updateItem']);
+    Route::delete('/permintaan-material/{pm}/items/{item}',                [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'deleteItem']);
     Route::delete('/permintaan-material/{pm}',                             [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'destroy']);
 
     // Delivery Orders

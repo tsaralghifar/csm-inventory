@@ -240,7 +240,12 @@
         <!-- Daftar Barang -->
         <div class="col-12">
           <div class="csm-card">
-            <div class="csm-card-header"><h6><i class="bi bi-list-check me-2"></i>Daftar Barang Diminta</h6></div>
+            <div class="csm-card-header d-flex align-items-center justify-content-between">
+              <h6><i class="bi bi-list-check me-2"></i>Daftar Barang Diminta</h6>
+              <span v-if="pm.status === 'draft'" class="badge bg-warning text-dark small">
+                <i class="bi bi-pencil me-1"></i>Draft — item bisa diedit / dihapus
+              </span>
+            </div>
             <div class="csm-card-body p-0">
               <div class="table-responsive">
                 <table class="table csm-table mb-0">
@@ -254,6 +259,7 @@
                       <th class="text-end">Jumlah</th>
                       <th>Satuan</th>
                       <th>Keterangan</th>
+                      <th v-if="pm.status === 'draft'" class="text-center" width="80">Aksi</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -271,6 +277,17 @@
                       <td class="text-end fw-bold">{{ item.qty }}</td>
                       <td><span class="badge bg-light text-dark border">{{ item.satuan }}</span></td>
                       <td><small class="text-muted">{{ item.keterangan || '-' }}</small></td>
+                      <td v-if="pm.status === 'draft'" class="text-center">
+                        <div class="d-flex gap-1 justify-content-center">
+                          <button class="btn btn-xs btn-outline-primary" @click="openEditItem(item)" title="Edit item">
+                            <i class="bi bi-pencil"></i>
+                          </button>
+                          <button class="btn btn-xs btn-outline-danger" @click="doDeleteItem(item)" title="Hapus item"
+                            :disabled="pm.items.length <= 1">
+                            <i class="bi bi-trash"></i>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -837,6 +854,57 @@
       </div>
     </div>
 
+    <!-- ===== Modal Edit Item ===== -->
+    <div class="modal fade" id="modalEditItem" tabindex="-1" data-bs-backdrop="static">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title text-primary"><i class="bi bi-pencil me-2"></i>Edit Item</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="row g-2">
+              <div class="col-12" v-if="pm?.type === 'part'">
+                <label class="form-label small fw-semibold">Part Number</label>
+                <input v-model="editItemForm.part_number" type="text" class="form-control form-control-sm" placeholder="Contoh: J8610495" />
+              </div>
+              <div class="col-12">
+                <label class="form-label small fw-semibold">Nama Barang <span class="text-danger">*</span></label>
+                <input v-model="editItemForm.nama_barang" type="text" class="form-control form-control-sm" />
+              </div>
+              <div class="col-6" v-if="pm?.type === 'part'">
+                <label class="form-label small fw-semibold">Kode Unit</label>
+                <input v-model="editItemForm.kode_unit" type="text" class="form-control form-control-sm" placeholder="CSM 0038" />
+              </div>
+              <div class="col-6" v-if="pm?.type === 'part'">
+                <label class="form-label small fw-semibold">Tipe Unit</label>
+                <input v-model="editItemForm.tipe_unit" type="text" class="form-control form-control-sm" placeholder="CAT 320D" />
+              </div>
+              <div class="col-6">
+                <label class="form-label small fw-semibold">Jumlah <span class="text-danger">*</span></label>
+                <input v-model="editItemForm.qty" type="number" class="form-control form-control-sm" min="0.01" step="0.01" />
+              </div>
+              <div class="col-6">
+                <label class="form-label small fw-semibold">Satuan <span class="text-danger">*</span></label>
+                <input v-model="editItemForm.satuan" type="text" class="form-control form-control-sm" placeholder="Pcs, Ltr, Set..." />
+              </div>
+              <div class="col-12">
+                <label class="form-label small fw-semibold">Keterangan</label>
+                <input v-model="editItemForm.keterangan" type="text" class="form-control form-control-sm" placeholder="Opsional..." />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+            <button type="button" class="btn btn-primary btn-sm" @click="saveEditItem" :disabled="saving">
+              <span v-if="saving" class="csm-spinner me-1"></span>
+              <i class="bi bi-check-lg me-1"></i>Simpan Perubahan
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -871,6 +939,50 @@ const rejectReason = ref('')
 
 const bonForm = ref({ warehouse_id: '', issue_date: '', received_by: '', notes: '' })
 const poForm = ref({ vendor_name: '', vendor_contact: '', warehouse_id: '', expected_date: '', notes: '', diskon_persen: 0, ppn_percent: 0, items: [], payment_type: 'cash', payment_term_days: 30 })
+
+const editItemForm = ref({ id: null, part_number: '', nama_barang: '', kode_unit: '', tipe_unit: '', qty: 1, satuan: '', keterangan: '' })
+
+function openEditItem(item) {
+  editItemForm.value = {
+    id:           item.id,
+    part_number:  item.part_number || '',
+    nama_barang:  item.nama_barang || '',
+    kode_unit:    item.kode_unit || '',
+    tipe_unit:    item.tipe_unit || '',
+    qty:          item.qty,
+    satuan:       item.satuan || '',
+    keterangan:   item.keterangan || '',
+  }
+  new Modal('#modalEditItem').show()
+}
+
+async function saveEditItem() {
+  if (!editItemForm.value.nama_barang) return toast.error('Nama barang wajib diisi')
+  if (!editItemForm.value.qty || editItemForm.value.qty <= 0) return toast.error('Jumlah harus lebih dari 0')
+  if (!editItemForm.value.satuan) return toast.error('Satuan wajib diisi')
+  saving.value = true
+  try {
+    await axios.put(`/permintaan-material/${pm.value.id}/items/${editItemForm.value.id}`, editItemForm.value)
+    toast.success('Item berhasil diperbarui')
+    Modal.getInstance('#modalEditItem')?.hide()
+    loadPM()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Gagal memperbarui item')
+  } finally { saving.value = false }
+}
+
+async function doDeleteItem(item) {
+  if (pm.value.items.length <= 1) return toast.error('PM harus memiliki minimal 1 item')
+  if (!confirm(`Hapus item "${item.nama_barang}" dari PM ini?`)) return
+  acting.value = true
+  try {
+    await axios.delete(`/permintaan-material/${pm.value.id}/items/${item.id}`)
+    toast.success('Item berhasil dihapus')
+    loadPM()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Gagal menghapus item')
+  } finally { acting.value = false }
+}
 
 const suppliers = ref([])
 const supplierSearch = ref('')

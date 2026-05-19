@@ -218,6 +218,53 @@ class PermintaanMaterialController extends Controller
         ]);
     }
 
+    // PUT /permintaan-material/{pm}/items/{item}
+    public function updateItem(Request $request, PermintaanMaterial $pm, \App\Models\PermintaanMaterialItem $item)
+    {
+        if ($pm->status !== 'draft') {
+            return response()->json(['success' => false, 'message' => 'Item hanya bisa diubah saat status masih Draft.'], 422);
+        }
+        if ($item->permintaan_material_id !== $pm->id) {
+            return response()->json(['success' => false, 'message' => 'Item tidak ditemukan dalam PM ini.'], 404);
+        }
+
+        $validated = $request->validate([
+            'nama_barang'  => 'required|string|max:255',
+            'part_number'  => 'nullable|string|max:100',
+            'kode_unit'    => 'nullable|string|max:100',
+            'tipe_unit'    => 'nullable|string|max:100',
+            'qty'          => 'required|numeric|min:0.01',
+            'satuan'       => 'required|string|max:50',
+            'keterangan'   => 'nullable|string',
+        ]);
+
+        $item->update($validated);
+
+        broadcast(new PermintaanMaterialUpdated($pm->fresh(), 'updated'))->toOthers();
+
+        return response()->json(['success' => true, 'data' => $item, 'message' => 'Item berhasil diperbarui.']);
+    }
+
+    // DELETE /permintaan-material/{pm}/items/{item}
+    public function deleteItem(Request $request, PermintaanMaterial $pm, \App\Models\PermintaanMaterialItem $item)
+    {
+        if ($pm->status !== 'draft') {
+            return response()->json(['success' => false, 'message' => 'Item hanya bisa dihapus saat status masih Draft.'], 422);
+        }
+        if ($item->permintaan_material_id !== $pm->id) {
+            return response()->json(['success' => false, 'message' => 'Item tidak ditemukan dalam PM ini.'], 404);
+        }
+        if ($pm->items()->count() <= 1) {
+            return response()->json(['success' => false, 'message' => 'PM harus memiliki minimal 1 item.'], 422);
+        }
+
+        $item->delete();
+
+        broadcast(new PermintaanMaterialUpdated($pm->fresh(), 'updated'))->toOthers();
+
+        return response()->json(['success' => true, 'message' => 'Item berhasil dihapus.']);
+    }
+
     // DELETE /permintaan-material/{id}
     public function destroy(PermintaanMaterial $pm)
     {

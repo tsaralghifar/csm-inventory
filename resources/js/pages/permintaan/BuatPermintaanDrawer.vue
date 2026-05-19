@@ -309,11 +309,27 @@
                     </div>
                     <div class="col-md-6 mb-2 position-relative">
                       <label class="pm-label">Kode Unit / Alat Berat</label>
+
+                      <!-- Tag list unit yang sudah dipilih -->
+                      <div v-if="item.kode_unit_list && item.kode_unit_list.length"
+                        class="d-flex flex-wrap gap-1 mb-1">
+                        <span v-for="(ku, ki) in item.kode_unit_list" :key="ki"
+                          class="badge d-inline-flex align-items-center gap-1"
+                          style="background:#1a3a5c;font-size:.75rem;padding:4px 8px;">
+                          {{ ku.kode }} <span class="text-white-50 small">{{ ku.tipe }}</span>
+                          <button type="button"
+                            class="btn-close btn-close-white ms-1"
+                            style="font-size:.55rem;opacity:.7;"
+                            @click="removeUnitFromItem(item, ki)"></button>
+                        </span>
+                      </div>
+
+                      <!-- Input pencarian unit baru -->
                       <input
                         v-model="item._unitSearch"
                         type="text"
                         class="form-control form-control-sm"
-                        placeholder="Cari kode unit... (CSM 0038)"
+                        placeholder="Cari & tambah kode unit... (CSM 0038)"
                         autocomplete="off"
                         @input="filterUnitsForItem(item)"
                         @focus="item._showUnitDrop = true; filterUnitsForItem(item)"
@@ -325,17 +341,20 @@
                         <li v-for="u in item._unitDropResults" :key="u.id"
                           class="list-group-item list-group-item-action py-1 px-2 small"
                           style="cursor:pointer"
-                          @mousedown.prevent="selectUnitForItem(item, u)">
+                          @mousedown.prevent="addUnitToItem(item, u)">
                           <strong>{{ u.unit_code }}</strong>
                           <span class="text-muted ms-1">— {{ u.type_unit }} {{ u.brand }}</span>
+                          <span v-if="isUnitAlreadyAdded(item, u)"
+                            class="badge bg-success ms-1" style="font-size:.65rem;">✓ Sudah ditambah</span>
                         </li>
                       </ul>
                     </div>
                     <div class="col-md-6 mb-2">
                       <label class="pm-label">Tipe Unit</label>
-                      <input v-model="item.tipe_unit" type="text" class="form-control form-control-sm"
-                        :class="item.kode_unit ? 'bg-light' : ''"
-                        placeholder="Contoh: CAT 320D, ZX350" readonly />
+                      <input
+                        :value="item.kode_unit_list && item.kode_unit_list.length ? item.kode_unit_list.map(k => k.tipe).filter(Boolean).join(', ') : ''"
+                        type="text" class="form-control form-control-sm bg-light"
+                        placeholder="Otomatis terisi" readonly />
                     </div>
                   </template>
 
@@ -449,6 +468,7 @@ function defaultItem() {
   return {
     _uid: uid(),
     item_id: null, part_number: '', nama_barang: '', kode_unit: '', tipe_unit: '',
+    kode_unit_list: [],   // array of { kode, tipe }
     qty: '', satuan: '', keterangan: '',
     is_new_item: false, new_part_number: '', new_category_id: '', new_brand: '', new_min_stock: 0,
     _searchStok: '', _showDropdown: false, _stok: undefined,
@@ -537,6 +557,7 @@ function duplicateItem(idx) {
     nama_barang: src.nama_barang,
     kode_unit: src.kode_unit,
     tipe_unit: src.tipe_unit,
+    kode_unit_list: JSON.parse(JSON.stringify(src.kode_unit_list || [])),
     satuan: src.satuan,
     is_new_item: src.is_new_item,
     new_part_number: src.new_part_number,
@@ -659,11 +680,31 @@ function filterUnitsForItem(item) {
       ).slice(0, 15)
 }
 function hideUnitDrop(item) { setTimeout(() => { item._showUnitDrop = false }, 150) }
-function selectUnitForItem(item, u) {
-  item.kode_unit     = u.unit_code  || ''
-  item.tipe_unit     = u.type_unit  || ''
-  item._unitSearch   = u.unit_code  || ''
+
+function isUnitAlreadyAdded(item, u) {
+  return (item.kode_unit_list || []).some(k => k.kode === u.unit_code)
+}
+
+function addUnitToItem(item, u) {
+  if (!item.kode_unit_list) item.kode_unit_list = []
+  // Cegah duplikat
+  if (isUnitAlreadyAdded(item, u)) {
+    item._unitSearch   = ''
+    item._showUnitDrop = false
+    return
+  }
+  item.kode_unit_list.push({ kode: u.unit_code || '', tipe: u.type_unit || '' })
+  // Sync field kode_unit & tipe_unit (string, untuk backward compat)
+  item.kode_unit = item.kode_unit_list.map(k => k.kode).join(', ')
+  item.tipe_unit = item.kode_unit_list.map(k => k.tipe).filter(Boolean).join(', ')
+  item._unitSearch   = ''
   item._showUnitDrop = false
+}
+
+function removeUnitFromItem(item, idx) {
+  item.kode_unit_list.splice(idx, 1)
+  item.kode_unit = item.kode_unit_list.map(k => k.kode).join(', ')
+  item.tipe_unit = item.kode_unit_list.map(k => k.tipe).filter(Boolean).join(', ')
 }
 
 // ── Save ─────────────────────────────────────────────────
