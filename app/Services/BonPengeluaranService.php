@@ -7,6 +7,7 @@ use App\Models\BonPengeluaranItem;
 use App\Models\ItemStock;
 use App\Models\MaterialRequest;
 use App\Models\PermintaanMaterial;
+use App\Models\StockLayer;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Notifications\BonPengeluaranConfirmationNotification;
@@ -337,7 +338,9 @@ class BonPengeluaranService
     }
 
     /**
-     * Issue stok: kurangi ItemStock dan buat StockMovement untuk setiap item.
+     * Issue stok dengan metode FIFO.
+     * Setiap item akan mengonsumsi layer terlama terlebih dahulu.
+     * Harga FIFO aktual dicatat ke BonPengeluaranItem dan StockMovement.
      */
     private function issueStock(BonPengeluaran $bon, int $userId): void
     {
@@ -347,44 +350,95 @@ class BonPengeluaranService
         foreach ($bon->items as $bonItem) {
             if (!$bonItem->item_id) continue;
 
-            $qty = (float) $bonItem->qty;
+            $qtyNeeded = (float) $bonItem->qty;
 
+            // ── Validasi stok tersedia ────────────────────────────────────────
             $stock = ItemStock::where('item_id', $bonItem->item_id)
                 ->where('warehouse_id', $bon->warehouse_id)
+                ->lockForUpdate()
                 ->first();
 
-            if (!$stock || $stock->qty < $qty) {
+            if (!$stock || (float) $stock->qty < $qtyNeeded) {
                 throw ValidationException::withMessages([
-                    'stock' => 'Stok tidak cukup untuk item: ' . $bonItem->nama_barang . '. '
-                               . 'Tersedia: ' . ($stock?->qty ?? 0) . ', Dibutuhkan: ' . $qty,
+                    'stock' => 'Stok tidak cukup untuk item: ' . $bonItem->nama_barang
+                               . '. Tersedia: ' . ($stock?->qty ?? 0)
+                               . ', Dibutuhkan: ' . $qtyNeeded,
                 ]);
             }
 
-            $qtyBefore = $stock->qty;
-            $stock->decrement('qty', $qty);
+            // ── Consume FIFO layers ───────────────────────────────────────────
+            $layers = StockLayer::forStock($bonItem->item_id, $bon->warehouse_id)
+                ->available()
+                ->fifo()
+                ->lockForUpdate()
+                ->get();
 
-            // Simpan snapshot harga saat pengeluaran agar riwayat akurat.
-            // Prioritas: avg_price item_stocks → price master item → 0
-            $hargaSnapshot = (float) ($stock->avg_price ?? 0);
-            if ($hargaSnapshot <= 0) {
-                $hargaSnapshot = (float) (\App\Models\Item::find($bonItem->item_id)?->price ?? 0);
+            $qtyRemaining   = $qtyNeeded;
+            $totalFifoValue = 0.0;   // akumulasi nilai untuk hitung weighted avg
+            $layerDetails   = [];    // untuk catatan di notes movement
+
+            foreach ($layers as $layer) {
+                if ($qtyRemaining <= 0) break;
+
+                $ambil = min((float) $layer->qty_sisa, $qtyRemaining);
+
+                // Kurangi qty_sisa layer
+                $layer->qty_sisa -= $ambil;
+                $layer->save();
+
+                $totalFifoValue += $ambil * (float) $layer->harga_satuan;
+                $qtyRemaining   -= $ambil;
+                $layerDetails[]  = "Tgl {$layer->tanggal_masuk->format('d/m/Y')}: {$ambil} @ Rp " .
+                                   number_format($layer->harga_satuan, 0, ',', '.');
             }
-            $bonItem->update(['harga_satuan' => $hargaSnapshot]);
 
+            // Jika layer tidak cukup cover (edge case: layer belum dibuat untuk stok lama)
+            // fallback ke avg_price untuk sisa qty
+            if ($qtyRemaining > 0) {
+                $fallbackHarga   = (float) ($stock->avg_price ?? \App\Models\Item::find($bonItem->item_id)?->price ?? 0);
+                $totalFifoValue += $qtyRemaining * $fallbackHarga;
+                $layerDetails[]  = "Stok lama (avg): {$qtyRemaining} @ Rp " .
+                                   number_format($fallbackHarga, 0, ',', '.');
+            }
+
+            // Harga FIFO rata-rata tertimbang untuk seluruh qty yang dikeluarkan
+            $fifoPrice = $qtyNeeded > 0 ? round($totalFifoValue / $qtyNeeded, 2) : 0;
+
+            // ── Update ItemStock ──────────────────────────────────────────────
+            $qtyBefore = (float) $stock->qty;
+            $stock->decrement('qty', $qtyNeeded);
+
+            // ── Simpan harga FIFO ke BonPengeluaranItem ───────────────────────
+            $bonItem->update([
+                'harga_satuan' => $fifoPrice,
+                'fifo_price'   => $fifoPrice,
+            ]);
+
+            // ── Buat StockMovement dengan harga FIFO ──────────────────────────
             StockMovement::create([
                 'item_id'           => $bonItem->item_id,
                 'from_warehouse_id' => $bon->warehouse_id,
                 'type'              => 'out',
-                'qty'               => $qty,
+                'qty'               => $qtyNeeded,
                 'qty_before'        => $qtyBefore,
-                'qty_after'         => $qtyBefore - $qty,
+                'qty_after'         => $qtyBefore - $qtyNeeded,
+                'price'             => $fifoPrice,
+                'fifo_price'        => $fifoPrice,
                 'reference_no'      => $bon->bon_number . '-' . str_pad($index++, 3, '0', STR_PAD_LEFT),
-                'notes'             => 'Bon Pengeluaran: ' . $bon->bon_number,
+                'notes'             => 'Bon Pengeluaran: ' . $bon->bon_number
+                                       . ' | FIFO: ' . implode(', ', $layerDetails),
+                'unit_code'         => $bon->unit_code,
+                'unit_type'         => $bon->unit_type,
+                'hm_km'             => $bon->hm_km,
+                'mechanic'          => $bon->mechanic,
                 'moveable_type'     => BonPengeluaran::class,
                 'moveable_id'       => $bon->id,
                 'movement_date'     => $bon->issue_date,
                 'created_by'        => $userId,
             ]);
+
+            // ── Low stock check ───────────────────────────────────────────────
+            app(LowStockAlertService::class)->checkAndAlert($bon->warehouse_id, $bonItem->item_id);
         }
 
         $bon->update([

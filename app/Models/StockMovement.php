@@ -8,17 +8,18 @@ class StockMovement extends Model
 {
     protected $fillable = [
         'reference_no', 'type', 'item_id', 'from_warehouse_id', 'to_warehouse_id',
-        'qty', 'qty_before', 'qty_after', 'price', 'unit_code', 'unit_type',
+        'qty', 'qty_before', 'qty_after', 'price', 'fifo_price', 'unit_code', 'unit_type',
         'hm_km', 'po_number', 'invoice_number', 'notes', 'mechanic', 'site_name',
         'created_by', 'moveable_type', 'moveable_id', 'movement_date',
     ];
 
     protected $casts = [
-        'qty' => 'decimal:2',
+        'qty'        => 'decimal:2',
         'qty_before' => 'decimal:2',
-        'qty_after' => 'decimal:2',
-        'price' => 'decimal:2',
-        'hm_km' => 'decimal:2',
+        'qty_after'  => 'decimal:2',
+        'price'      => 'decimal:2',
+        'fifo_price' => 'decimal:2',
+        'hm_km'      => 'decimal:2',
         'movement_date' => 'date',
     ];
 

@@ -2,229 +2,193 @@
 
 namespace App\Services;
 
-use App\Models\Item;
-use App\Models\ItemPriceHistory;
 use App\Models\ItemStock;
-use App\Models\PurchaseOrder;
-use App\Models\PurchaseOrderItem;
+use App\Models\StockLayer;
 use App\Models\StockMovement;
-use App\Models\SuratJalan;
-use App\Models\SuratJalanItem;
+use App\Models\StokOpname;
+use App\Models\StokOpnameItem;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 
-class SuratJalanService
+class StokOpnameService
 {
     /**
-     * Ambil daftar Surat Jalan / TTB dengan filter.
+     * Ambil daftar Stok Opname dengan filter.
      */
     public function list(Request $request): LengthAwarePaginator
     {
-        $query = SuratJalan::with(['purchaseOrder', 'warehouse', 'creator', 'receiver'])
+        $query = StokOpname::with(['warehouse', 'dibuatOleh', 'disetujuiOleh'])
             ->withCount('items')
-            ->latest();
+            ->orderBy('created_at', 'desc');
 
-        if ($request->po_id)         $query->where('purchase_order_id', $request->po_id);
-        if ($request->warehouse_id)  $query->where('warehouse_id', $request->warehouse_id);
-        if ($request->status)        $query->where('status', $request->status);
-
-        if ($request->delivery_status) {
-            if ($request->delivery_status === 'null') {
-                $query->whereHas('purchaseOrder', fn($q) => $q->whereNull('delivery_status'));
-            } else {
-                $query->whereHas('purchaseOrder', fn($q) => $q->where('delivery_status', $request->delivery_status));
-            }
-        }
-
-        if ($request->search) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('sj_number', 'ilike', "%{$search}%")
-                  ->orWhereHas('purchaseOrder', fn($q2) => $q2->where('po_number', 'ilike', "%{$search}%"));
-            });
-        }
-
-        if ($request->date_from) $query->whereDate('received_date', '>=', $request->date_from);
-        if ($request->date_to)   $query->whereDate('received_date', '<=', $request->date_to);
+        if ($request->warehouse_id) $query->where('warehouse_id', $request->warehouse_id);
+        if ($request->status)       $query->where('status', $request->status);
+        if ($request->date_from)    $query->whereDate('tanggal_opname', '>=', $request->date_from);
+        if ($request->date_to)      $query->whereDate('tanggal_opname', '<=', $request->date_to);
 
         return $query->paginate($request->per_page ?? 15);
     }
 
     /**
-     * Buat Surat Jalan (TTB) baru dari sebuah PO.
+     * Buat Stok Opname baru beserta item-itemnya.
+     * Field mengikuti skema model: nomor, tipe, no_referensi, tanggal_opname, dll.
      */
-    public function create(array $validated, PurchaseOrder $po, int $userId): SuratJalan
+    public function create(array $validated, int $userId): StokOpname
     {
-        $this->assertPoReceivable($po);
+        return DB::transaction(function () use ($validated, $userId) {
+            $dateStr = now()->format('Ymd');
+            $prefix  = "ADJ-{$dateStr}-";
+            $last    = StokOpname::where('nomor', 'like', "{$prefix}%")
+                ->lockForUpdate()
+                ->orderByRaw("CAST(SUBSTRING(nomor FROM " . (strlen($prefix) + 1) . ") AS INTEGER) DESC")
+                ->value('nomor');
+            $next  = $last ? ((int) substr($last, strlen($prefix)) + 1) : 1;
+            $nomor = $prefix . str_pad($next, 4, '0', STR_PAD_LEFT);
 
-        return DB::transaction(function () use ($validated, $po, $userId) {
-            $sj = SuratJalan::create([
-                'sj_number'         => SuratJalan::generateNumber(),
-                'purchase_order_id' => $po->id,
-                'warehouse_id'      => $po->warehouse_id,
-                'created_by'        => $userId,
-                'status'            => 'received',
-                'vendor_name'       => $validated['vendor_name'] ?? null,
-                'driver_name'       => $validated['driver_name'] ?? null,
-                'vehicle_plate'     => $validated['vehicle_plate'] ?? null,
-                'received_date'     => $validated['received_date'],
-                'notes'             => $validated['notes'] ?? null,
-                'received_by_user'  => $userId,
+            $opname = StokOpname::create([
+                'nomor'          => $nomor,
+                'warehouse_id'   => $validated['warehouse_id'],
+                'tipe'           => $validated['tipe'],
+                'no_referensi'   => $validated['no_referensi'],
+                'keterangan'     => $validated['keterangan'] ?? null,
+                'tanggal_opname' => $validated['tanggal_opname'],
+                'status'         => 'draft',
+                'dibuat_oleh'    => $userId,
             ]);
 
-            $this->processItems($validated['items'], $sj, $po, $userId);
-            $this->updatePoDeliveryStatus($po);
+            foreach ($validated['items'] as $item) {
+                $systemQty = ItemStock::where('item_id', $item['item_id'])
+                    ->where('warehouse_id', $validated['warehouse_id'])
+                    ->value('qty') ?? 0;
 
-            return $sj->load('items.item', 'purchaseOrder', 'warehouse', 'creator');
+                StokOpnameItem::create([
+                    'stok_opname_id' => $opname->id,
+                    'item_id'        => $item['item_id'],
+                    'qty_sistem'     => $systemQty,
+                    'qty_fisik'      => $item['qty_fisik'],
+                    'keterangan'     => $item['keterangan'] ?? null,
+                ]);
+            }
+
+            return $opname->load('items.item', 'warehouse', 'dibuatOleh');
         });
     }
 
-    // ─── Private helpers ──────────────────────────────────────────────────────
-
-    private function assertPoReceivable(PurchaseOrder $po): void
+    /**
+     * Update Stok Opname draft (items di-replace).
+     */
+    public function update(StokOpname $opname, array $validated): StokOpname
     {
-        if (in_array($po->status, ['draft', 'cancelled'])) {
+        if ($opname->status !== 'draft') {
             throw ValidationException::withMessages([
-                'status' => 'PO belum siap untuk diterima barangnya.',
+                'status' => 'Hanya dokumen draft yang bisa diedit.',
             ]);
         }
-    }
 
-    private function processItems(array $items, SuratJalan $sj, PurchaseOrder $po, int $userId): void
-    {
-        foreach ($items as $itemData) {
-            $qtyReceived = (float) ($itemData['qty_received'] ?? 0);
-
-            if ($qtyReceived <= 0) continue;
-
-            $poItem = PurchaseOrderItem::findOrFail($itemData['purchase_order_item_id']);
-
-            SuratJalanItem::create([
-                'surat_jalan_id'         => $sj->id,
-                'purchase_order_item_id' => $poItem->id,
-                'item_id'                => $poItem->item_id,
-                'nama_barang'            => $poItem->nama_barang,
-                'kode_unit'              => $poItem->kode_unit ?? null,
-                'tipe_unit'              => $poItem->tipe_unit ?? null,
-                'qty_ordered'            => $poItem->qty,
-                'qty_received'           => $qtyReceived,
-                'satuan'                 => $poItem->satuan,
-                'harga_satuan'           => $poItem->harga_satuan ?? 0,
-                'keterangan'             => $itemData['keterangan'] ?? null,
-                'masuk_stok'             => $itemData['masuk_stok'] ?? true,
+        return DB::transaction(function () use ($opname, $validated) {
+            $opname->update([
+                'tipe'           => $validated['tipe'],
+                'no_referensi'   => $validated['no_referensi'],
+                'keterangan'     => $validated['keterangan'] ?? null,
+                'tanggal_opname' => $validated['tanggal_opname'],
             ]);
 
-            // Akumulasi qty_received di PO item
-            $poItem->increment('qty_received', $qtyReceived);
+            $opname->items()->delete();
 
-            // Update stok jika item terdaftar di master item dan masuk_stok tidak di-set false
-            $masukStok = $itemData['masuk_stok'] ?? true;
-            if ($poItem->item_id && $masukStok) {
-                $this->addStock($poItem, $po, $qtyReceived, $sj, $userId);
+            foreach ($validated['items'] as $item) {
+                $systemQty = ItemStock::where('item_id', $item['item_id'])
+                    ->where('warehouse_id', $opname->warehouse_id)
+                    ->value('qty') ?? 0;
+
+                StokOpnameItem::create([
+                    'stok_opname_id' => $opname->id,
+                    'item_id'        => $item['item_id'],
+                    'qty_sistem'     => $systemQty,
+                    'qty_fisik'      => $item['qty_fisik'],
+                    'keterangan'     => $item['keterangan'] ?? null,
+                ]);
             }
-        }
-    }
 
-    private function addStock(PurchaseOrderItem $poItem, PurchaseOrder $po, float $qty, SuratJalan $sj, int $userId): void
-    {
-        $stock = ItemStock::firstOrCreate(
-            ['item_id' => $poItem->item_id, 'warehouse_id' => $po->warehouse_id],
-            ['qty' => 0, 'qty_reserved' => 0, 'avg_price' => 0]
-        );
-
-        $qtyBefore  = $stock->qty;
-        $harga      = $poItem->harga_satuan ?? 0;
-
-        // Hitung average price (moving average)
-        $newAvgPrice = $stock->qty > 0
-            ? (($stock->avg_price * $stock->qty) + ($harga * $qty)) / ($stock->qty + $qty)
-            : $harga;
-
-        $stock->update([
-            'qty'       => $qtyBefore + $qty,
-            'avg_price' => round($newAvgPrice, 2),
-        ]);
-
-        // Catat riwayat harga pembelian
-        ItemPriceHistory::create([
-            'item_id'          => $poItem->item_id,
-            'warehouse_id'     => $po->warehouse_id,
-            'purchase_price'   => $harga,
-            'avg_price_before' => $stock->avg_price,
-            'avg_price_after'  => round($newAvgPrice, 2),
-            'qty_received'     => $qty,
-            'reference_no'     => $po->po_number,
-            'source_type'      => 'purchase_order',
-            'created_by'       => $userId,
-            'transaction_date' => now()->toDateString(),
-        ]);
-
-        StockMovement::create([
-            'item_id'          => $poItem->item_id,
-            'to_warehouse_id'  => $po->warehouse_id,
-            'type'             => 'in',
-            'qty'              => $qty,
-            'qty_before'       => $qtyBefore,
-            'qty_after'        => $qtyBefore + $qty,
-            'reference_no'     => $sj->sj_number . '-' . $poItem->id,
-            'po_number'        => $po->po_number,
-            'notes'            => "Penerimaan barang dari PO: {$po->po_number}",
-            'moveable_type'    => SuratJalan::class,
-            'moveable_id'      => $sj->id,
-            'movement_date'    => now()->toDateString(),
-            'created_by'       => $userId,
-            'price'            => $harga,
-        ]);
+            return $opname->fresh()->load('items.item', 'warehouse', 'dibuatOleh');
+        });
     }
 
     /**
-     * Konfirmasi penerimaan Surat Jalan oleh penerima akhir.
-     * Method ini dipanggil dari route POST /surat-jalan/{id}/receive.
+     * Approve Stok Opname → adjust stok sesuai hasil fisik.
      */
-    public function markReceived(SuratJalan $sj, array $validated, int $userId): SuratJalan
+    public function approve(StokOpname $opname, StockService $stockService, int $userId): StokOpname
     {
-        if ($sj->status === 'received') {
-            throw \Illuminate\Validation\ValidationException::withMessages([
-                'status' => 'Surat Jalan sudah pernah dikonfirmasi penerimaannya.',
+        if ($opname->status !== 'menunggu_approval') {
+            throw ValidationException::withMessages([
+                'status' => 'Dokumen tidak dalam status menunggu approval.',
             ]);
         }
 
-        $sj->update([
-            'status'      => 'received',
-            'received_by' => $validated['received_by'],
-            'received_at' => now(),
-            'notes'       => ($sj->notes ? $sj->notes . "\n" : '') . ($validated['notes'] ?? ''),
-            'received_by_user_id' => $userId,
-        ]);
+        DB::transaction(function () use ($opname, $stockService, $userId) {
+            $opname->load('items.item');
 
-        return $sj->fresh();
-    }
+            $adjIndex = 1;
+            foreach ($opname->items as $row) {
+                $selisih = (float) $row->qty_fisik - (float) $row->qty_sistem;
+                if ($selisih == 0) continue;
 
-    private function updatePoDeliveryStatus(PurchaseOrder $po): void
-    {
-        $po->load('items');
+                $refNo = $opname->nomor . '-' . str_pad($adjIndex, 3, '0', STR_PAD_LEFT);
 
-        $totalQty    = $po->items->sum('qty');
-        $receivedQty = $po->items->sum('qty_received');
+                $stockService->adjustment([
+                    'item_id'       => $row->item_id,
+                    'warehouse_id'  => $opname->warehouse_id,
+                    'qty'           => abs($selisih),
+                    'type'          => $selisih > 0 ? 'in' : 'out',
+                    'notes'         => "[{$opname->tipe}] Ref: {$opname->no_referensi} | Opname: {$opname->nomor}",
+                    'movement_date' => $opname->tanggal_opname->format('Y-m-d'),
+                    'reference_no'  => $refNo,
+                ], $userId);
 
-        $deliveryStatus = match (true) {
-            $receivedQty <= 0          => null,
-            $receivedQty < $totalQty   => 'partial',
-            default                    => 'completed',
-        };
+                // ── Sesuaikan FIFO layers ────────────────────────────────────
+                if ($selisih > 0) {
+                    // Stok bertambah → buat layer baru dengan harga avg saat ini
+                    $avgHarga = ItemStock::where('item_id', $row->item_id)
+                        ->where('warehouse_id', $opname->warehouse_id)
+                        ->value('avg_price') ?? 0;
 
-        // Sync kolom status sesuai kondisi penerimaan barang
-        $poStatus = match ($deliveryStatus) {
-            'partial'   => PurchaseOrder::STATUS_PARTIAL_RECEIVED,
-            'completed' => PurchaseOrder::STATUS_COMPLETED,
-            default     => $po->status, // tidak berubah jika belum ada penerimaan
-        };
+                    StockLayer::create([
+                        'item_id'       => $row->item_id,
+                        'warehouse_id'  => $opname->warehouse_id,
+                        'qty_awal'      => abs($selisih),
+                        'qty_sisa'      => abs($selisih),
+                        'harga_satuan'  => $avgHarga,
+                        'tanggal_masuk' => $opname->tanggal_opname->format('Y-m-d'),
+                        'source_type'   => 'opname',
+                        'reference_no'  => $opname->nomor,
+                        'created_by'    => $userId,
+                    ]);
+                } else {
+                    // Stok berkurang → consume layer FIFO dari yang terlama
+                    $qtyRemaining = abs($selisih);
+                    $layers = StockLayer::forStock($row->item_id, $opname->warehouse_id)
+                        ->available()->fifo()->lockForUpdate()->get();
 
-        $po->update([
-            'delivery_status' => $deliveryStatus,
-            'status'          => $poStatus,
-        ]);
+                    foreach ($layers as $layer) {
+                        if ($qtyRemaining <= 0) break;
+                        $kurangi = min((float) $layer->qty_sisa, $qtyRemaining);
+                        $layer->qty_sisa -= $kurangi;
+                        $layer->save();
+                        $qtyRemaining -= $kurangi;
+                    }
+                }
+
+                $adjIndex++;
+            }
+
+            $opname->update([
+                'status'         => 'disetujui',
+                'disetujui_oleh' => $userId,
+                'disetujui_at'   => now(),
+            ]);
+        });
+
+        return $opname->fresh()->load('items.item', 'warehouse', 'disetujuiOleh');
     }
 }

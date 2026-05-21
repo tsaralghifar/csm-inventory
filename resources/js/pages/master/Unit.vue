@@ -201,7 +201,15 @@
                           <td><code class="small text-primary">{{ item.item?.part_number || '-' }}</code></td>
                           <td class="text-end fw-bold small">{{ item.qty }}</td>
                           <td class="text-muted small">{{ item.satuan }}</td>
-                          <td class="text-end small">{{ getHargaSatuan(item) > 0 ? $formatCurrency(getHargaSatuan(item)) : '-' }}</td>
+                          <td class="text-end small">
+                            <span v-if="getHargaSatuan(item) > 0">
+                              {{ $formatCurrency(getHargaSatuan(item)) }}
+                              <span v-if="parseFloat(item.fifo_price) > 0"
+                                class="badge bg-info text-dark ms-1" style="font-size:0.55rem;">FIFO</span>
+                              <span v-else class="badge bg-secondary ms-1" style="font-size:0.55rem;">AVG</span>
+                            </span>
+                            <span v-else class="text-muted">-</span>
+                          </td>
                           <td class="text-end small fw-semibold text-success">
                             {{ bonItemSubtotal(item) > 0 ? $formatCurrency(bonItemSubtotal(item)) : '-' }}
                           </td>
@@ -273,13 +281,15 @@ async function openHistory(u) {
 }
 
 function getHargaSatuan(item) {
-  // Prioritas 1: harga_satuan yang disimpan saat bon dikeluarkan (snapshot)
+  // Prioritas 1: fifo_price — harga FIFO aktual saat barang dikeluarkan
+  if (parseFloat(item.fifo_price) > 0) return parseFloat(item.fifo_price)
+  // Prioritas 2: harga_satuan snapshot saat bon dikeluarkan
   if (parseFloat(item.harga_satuan) > 0) return parseFloat(item.harga_satuan)
-  // Prioritas 2: avg_price dari item_stocks (ambil yang pertama tersedia)
+  // Prioritas 3: avg_price dari item_stocks
   const stocks = item.item?.itemStocks || []
   const avgPrice = stocks.find(s => parseFloat(s.avg_price) > 0)?.avg_price
   if (parseFloat(avgPrice) > 0) return parseFloat(avgPrice)
-  // Prioritas 3: harga master barang
+  // Prioritas 4: harga master barang
   return parseFloat(item.item?.price) || 0
 }
 

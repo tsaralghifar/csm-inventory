@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Item;
 use App\Models\ItemStock;
+use App\Models\StockLayer;
 use App\Models\StockMovement;
 use App\Models\Warehouse;
 use Illuminate\Support\Facades\DB;
@@ -56,6 +57,21 @@ class StockService
             $itemStock->qty = $qtyBefore + $qty;
             $itemStock->last_updated = now();
             $itemStock->save();
+
+            // ── Buat FIFO Layer untuk setiap barang masuk ────────────────────
+            if ($newPrice > 0 || $qty > 0) {
+                StockLayer::create([
+                    'item_id'      => $data['item_id'],
+                    'warehouse_id' => $data['warehouse_id'],
+                    'qty_awal'     => $qty,
+                    'qty_sisa'     => $qty,
+                    'harga_satuan' => $newPrice,
+                    'tanggal_masuk'=> $data['movement_date'] ?? today(),
+                    'source_type'  => $data['source_type'] ?? 'po',
+                    'reference_no' => $data['po_number'] ?? ($data['reference_no'] ?? null),
+                    'created_by'   => $userId,
+                ]);
+            }
 
             // ── Low stock check ──────────────────────────────────────────────
             $this->lowStockAlert->checkAndAlert($data['warehouse_id'], $data['item_id']);
@@ -259,6 +275,35 @@ class StockService
 
         $itemStock->update(['qty' => $qtyAfter, 'last_updated' => now()]);
 
+        // ── Sesuaikan FIFO layer ─────────────────────────────────────────────
+        if ($isIn) {
+            // Stok masuk dari adjustment → buat layer dengan avg_price saat ini
+            StockLayer::create([
+                'item_id'       => $data['item_id'],
+                'warehouse_id'  => $data['warehouse_id'],
+                'qty_awal'      => $qty,
+                'qty_sisa'      => $qty,
+                'harga_satuan'  => (float) ($itemStock->avg_price ?? 0),
+                'tanggal_masuk' => $data['movement_date'] ?? today(),
+                'source_type'   => 'opname',
+                'reference_no'  => $data['reference_no'] ?? null,
+                'created_by'    => $userId,
+            ]);
+        } else {
+            // Stok keluar dari adjustment → consume layer FIFO terlama
+            $qtyRemaining = $qty;
+            $layers = StockLayer::forStock($data['item_id'], $data['warehouse_id'])
+                ->available()->fifo()->lockForUpdate()->get();
+
+            foreach ($layers as $layer) {
+                if ($qtyRemaining <= 0) break;
+                $kurangi = min((float) $layer->qty_sisa, $qtyRemaining);
+                $layer->qty_sisa -= $kurangi;
+                $layer->save();
+                $qtyRemaining -= $kurangi;
+            }
+        }
+
         // ── Low stock check ──────────────────────────────────────────────────
         $this->lowStockAlert->checkAndAlert($data['warehouse_id'], $data['item_id']);
 
@@ -268,7 +313,7 @@ class StockService
             'item_id'           => $data['item_id'],
             'to_warehouse_id'   => $isIn  ? $data['warehouse_id'] : null,
             'from_warehouse_id' => !$isIn ? $data['warehouse_id'] : null,
-            'qty'               => $qty,  // selalu positif — arah ditentukan oleh field type
+            'qty'               => $qty,
             'qty_before'        => $qtyBefore,
             'qty_after'         => $qtyAfter,
             'price'             => 0,

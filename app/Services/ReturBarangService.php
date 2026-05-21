@@ -6,6 +6,7 @@ use App\Models\Item;
 use App\Models\ItemStock;
 use App\Models\ReturBarang;
 use App\Models\ReturBarangItem;
+use App\Models\StockLayer;
 use App\Models\StockMovement;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -129,6 +130,24 @@ class ReturBarangService
         $stock->qty          = $qtyBefore - $qty;
         $stock->last_updated = now();
         $stock->save();
+
+        // ── Kurangi FIFO layer dari yang terakhir masuk (LIFO untuk retur) ───
+        // Logika: retur biasanya dari pembelian terakhir yang bermasalah
+        $qtyRemaining = $qty;
+        $layers = StockLayer::forStock($returItem->item_id, $retur->warehouse_id)
+            ->available()
+            ->orderBy('tanggal_masuk', 'desc')  // dari yang terbaru
+            ->orderBy('id', 'desc')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($layers as $layer) {
+            if ($qtyRemaining <= 0) break;
+            $kurangi = min((float) $layer->qty_sisa, $qtyRemaining);
+            $layer->qty_sisa -= $kurangi;
+            $layer->save();
+            $qtyRemaining -= $kurangi;
+        }
 
         StockMovement::create([
             'reference_no'      => $this->generateReturRefNo(),

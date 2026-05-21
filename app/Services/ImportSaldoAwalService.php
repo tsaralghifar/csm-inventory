@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Item;
 use App\Models\ItemPriceHistory;
 use App\Models\ItemStock;
+use App\Models\StockLayer;
 use App\Models\StockMovement;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -229,6 +230,27 @@ class ImportSaldoAwalService
                     'created_by'        => $userId,
                     'movement_date'     => $tanggal,
                 ]);
+
+                // ── Buat FIFO Layer untuk saldo awal ─────────────────────────
+                // Hapus layer lama item ini di gudang ini dulu (overwrite)
+                StockLayer::where('item_id', $item->id)
+                    ->where('warehouse_id', $warehouseId)
+                    ->where('source_type', 'import')
+                    ->delete();
+
+                if ($stokAkhir > 0) {
+                    StockLayer::create([
+                        'item_id'       => $item->id,
+                        'warehouse_id'  => $warehouseId,
+                        'qty_awal'      => $stokAkhir,
+                        'qty_sisa'      => $stokAkhir,
+                        'harga_satuan'  => $harga ?? 0,
+                        'tanggal_masuk' => $tanggal,
+                        'source_type'   => 'import',
+                        'reference_no'  => 'SALDO-AWAL-' . date('Y', strtotime($tanggal)),
+                        'created_by'    => $userId,
+                    ]);
+                }
 
                 $imported++;
             }

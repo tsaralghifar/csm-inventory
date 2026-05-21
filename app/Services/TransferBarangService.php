@@ -8,6 +8,7 @@ use App\Models\DeliveryOrderItem;
 use App\Models\ItemStock;
 use App\Models\MaterialRequest;
 use App\Models\MaterialRequestItem;
+use App\Models\StockLayer;
 use App\Models\StockMovement;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -241,6 +242,7 @@ class TransferBarangService
     ): void {
         $stock = ItemStock::where('item_id', $itemId)
             ->where('warehouse_id', $fromWarehouseId)
+            ->lockForUpdate()
             ->first();
 
         if (!$stock) return;
@@ -248,6 +250,40 @@ class TransferBarangService
         $qtyBefore = $stock->qty;
         $stock->decrement('qty', $qty);
         $stock->decrement('qty_reserved', min($qty, $stock->qty_reserved));
+
+        // ── Pindahkan FIFO layers dari gudang asal ke gudang tujuan ──────────
+        $qtyRemaining = $qty;
+        $layers = StockLayer::forStock($itemId, $fromWarehouseId)
+            ->available()
+            ->fifo()
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($layers as $layer) {
+            if ($qtyRemaining <= 0) break;
+
+            $ambil = min((float) $layer->qty_sisa, $qtyRemaining);
+
+            // Kurangi layer asal
+            $layer->qty_sisa -= $ambil;
+            $layer->save();
+
+            // Buat layer baru di gudang tujuan dengan harga asli terjaga
+            StockLayer::create([
+                'item_id'        => $itemId,
+                'warehouse_id'   => $toWarehouseId,
+                'qty_awal'       => $ambil,
+                'qty_sisa'       => $ambil,
+                'harga_satuan'   => $layer->harga_satuan,
+                'tanggal_masuk'  => $layer->tanggal_masuk, // pertahankan tanggal asal
+                'source_type'    => 'transfer',
+                'reference_no'   => $do->do_number,
+                'parent_layer_id'=> $layer->id,
+                'created_by'     => $userId,
+            ]);
+
+            $qtyRemaining -= $ambil;
+        }
 
         StockMovement::create([
             'item_id'           => $itemId,
@@ -282,6 +318,7 @@ class TransferBarangService
 
         $qtyBefore = $stock->qty;
         $stock->increment('qty', $qty);
+        // Catatan: layer FIFO sudah dibuat di deductStock, tidak perlu buat lagi di sini
 
         StockMovement::create([
             'item_id'           => $itemId,

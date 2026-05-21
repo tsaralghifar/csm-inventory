@@ -44,7 +44,7 @@
           <div class="table-responsive">
             <table class="table csm-table mb-0">
               <thead>
-                <tr><th>Tanggal</th><th>Ref No</th><th>Part Number</th><th>Nama Barang</th><th>Unit</th><th>Type</th><th>HM</th><th>Mekanik</th><th>Site</th><th class="text-end">Qty</th><th>Satuan</th><th class="text-end">Harga</th><th class="text-end">Total</th></tr>
+                <tr><th>Tanggal</th><th>Ref No</th><th>Part Number</th><th>Nama Barang</th><th>Unit</th><th>Type</th><th>HM</th><th>Mekanik</th><th>Site</th><th class="text-end">Qty</th><th>Satuan</th><th class="text-end">Harga FIFO</th><th class="text-end">Total</th></tr>
               </thead>
               <tbody>
                 <tr v-if="!data.length"><td colspan="13" class="text-center text-muted py-4">Tidak ada data</td></tr>
@@ -60,8 +60,15 @@
                   <td><small>{{ m.site_name || m.from_warehouse?.name || '-' }}</small></td>
                   <td class="text-end fw-semibold">{{ $formatNumber(m.qty) }}</td>
                   <td><small>{{ m.item?.unit }}</small></td>
-                  <td class="text-end small">{{ m.price > 0 ? $formatCurrency(m.price) : '-' }}</td>
-                  <td class="text-end small">{{ m.price > 0 ? $formatCurrency(m.qty * m.price) : '-' }}</td>
+                  <td class="text-end small">
+                    <span v-if="m.harga_display > 0">
+                      {{ $formatCurrency(m.harga_display) }}
+                      <span v-if="m.is_fifo" class="badge bg-info text-dark ms-1" style="font-size:0.6rem;">FIFO</span>
+                      <span v-else class="badge bg-secondary ms-1" style="font-size:0.6rem;">AVG</span>
+                    </span>
+                    <span v-else class="text-muted">-</span>
+                  </td>
+                  <td class="text-end small fw-semibold">{{ m.subtotal_fifo > 0 ? $formatCurrency(m.subtotal_fifo) : '-' }}</td>
                 </tr>
               </tbody>
             </table>
@@ -98,8 +105,15 @@ async function load() {
 }
 
 function exportExcel() {
-  const headers = ['Tanggal','Ref No','Part Number','Nama Barang','Unit','Type Unit','HM/KM','Mekanik','Site','Qty','Satuan','Harga','Total']
-  const rows = data.value.map(m => [m.movement_date, m.reference_no, m.item?.part_number, m.item?.name, m.unit_code||'', m.unit_type||'', m.hm_km||'', m.mechanic||'', m.site_name||'', m.qty, m.item?.unit, m.price||0, m.qty*(m.price||0)])
+  const headers = ['Tanggal','Ref No','Part Number','Nama Barang','Unit','Type Unit','HM/KM','Mekanik','Site','Qty','Satuan','Harga FIFO','Total FIFO','Metode Harga']
+  const rows = data.value.map(m => [
+    m.movement_date, m.reference_no, m.item?.part_number, m.item?.name,
+    m.unit_code||'', m.unit_type||'', m.hm_km||'', m.mechanic||'', m.site_name||'',
+    m.qty, m.item?.unit,
+    m.harga_display||0,
+    m.subtotal_fifo||0,
+    m.is_fifo ? 'FIFO' : 'AVG'
+  ])
   const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n')
   const blob = new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8' })
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'laporan_pengeluaran.csv'; a.click()

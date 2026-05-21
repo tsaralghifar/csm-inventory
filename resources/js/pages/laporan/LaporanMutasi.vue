@@ -38,9 +38,9 @@
       <div class="csm-card-body p-0">
         <div class="table-responsive">
           <table class="table csm-table mb-0">
-            <thead><tr><th>Tanggal</th><th>Ref No</th><th>Jenis</th><th>Barang</th><th>Dari</th><th>Ke</th><th class="text-end">Qty</th><th class="text-end">Stok Sesudah</th><th>Oleh</th></tr></thead>
+            <thead><tr><th>Tanggal</th><th>Ref No</th><th>Jenis</th><th>Barang</th><th>Dari</th><th>Ke</th><th class="text-end">Qty</th><th class="text-end">Harga</th><th class="text-end">Stok Sesudah</th><th>Oleh</th></tr></thead>
             <tbody>
-              <tr v-if="!data.length"><td colspan="9" class="text-center text-muted py-4">Tidak ada data</td></tr>
+              <tr v-if="!data.length"><td colspan="10" class="text-center text-muted py-4">Tidak ada data</td></tr>
               <tr v-for="m in data" :key="m.id">
                 <td><small>{{ $formatDate(m.movement_date) }}</small></td>
                 <td><code class="text-primary" style="font-size:0.7rem;">{{ m.reference_no }}</code></td>
@@ -52,6 +52,13 @@
                 <td><small class="text-muted">{{ m.from_warehouse?.name || '-' }}</small></td>
                 <td><small class="text-muted">{{ m.to_warehouse?.name || '-' }}</small></td>
                 <td class="text-end fw-semibold">{{ $formatNumber(m.qty) }}</td>
+                <td class="text-end small">
+                  <span v-if="(m.fifo_price > 0 || m.price > 0)">
+                    {{ $formatCurrency(m.fifo_price > 0 ? m.fifo_price : m.price) }}
+                    <span v-if="m.fifo_price > 0" class="badge bg-info text-dark ms-1" style="font-size:0.55rem;">FIFO</span>
+                  </span>
+                  <span v-else class="text-muted">-</span>
+                </td>
                 <td class="text-end"><span :class="parseFloat(m.qty_after)<0?'stock-minus':'fw-semibold'">{{ $formatNumber(m.qty_after) }}</span></td>
                 <td><small class="text-muted">{{ m.creator?.name }}</small></td>
               </tr>
@@ -98,8 +105,16 @@ function changePage(p) { meta.value.page = p; load() }
 function typeLabel(t) { const m = {in:'Masuk',out:'Keluar',transfer_out:'Transfer Out',transfer_in:'Transfer In',opname:'Opname',adjustment:'Adj'}; return m[t]||t }
 function typeClass(t) { if(t==='in'||t==='transfer_in') return 'bg-success'; if(t==='out'||t==='transfer_out') return 'bg-warning text-dark'; return 'bg-secondary' }
 function exportExcel() {
-  const headers = ['Tanggal','Ref No','Jenis','Part Number','Nama Barang','Dari Gudang','Ke Gudang','Qty','Stok Sesudah','Oleh']
-  const rows = data.value.map(m => [m.movement_date, m.reference_no, typeLabel(m.type), m.item?.part_number, m.item?.name, m.from_warehouse?.name||'', m.to_warehouse?.name||'', m.qty, m.qty_after, m.creator?.name])
+  const headers = ['Tanggal','Ref No','Jenis','Part Number','Nama Barang','Dari Gudang','Ke Gudang','Qty','Harga FIFO','Metode','Stok Sesudah','Oleh']
+  const rows = data.value.map(m => [
+    m.movement_date, m.reference_no, typeLabel(m.type),
+    m.item?.part_number, m.item?.name,
+    m.from_warehouse?.name||'', m.to_warehouse?.name||'',
+    m.qty,
+    m.fifo_price > 0 ? m.fifo_price : (m.price || 0),
+    m.fifo_price > 0 ? 'FIFO' : (m.price > 0 ? 'AVG' : '-'),
+    m.qty_after, m.creator?.name
+  ])
   const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n')
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv'})); a.download = 'laporan_mutasi.csv'; a.click()
   toast.success('Export berhasil')
