@@ -67,7 +67,7 @@ class BonPengeluaranController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data'    => $bonPengeluaran->load('items.item', 'warehouse', 'creator', 'approver', 'materialRequest', 'permintaanMaterial'),
+            'data'    => $bonPengeluaran->load('items.item', 'items.fifoLayers', 'warehouse', 'creator', 'approver', 'materialRequest', 'permintaanMaterial'),
         ]);
     }
 

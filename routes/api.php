@@ -100,7 +100,12 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
         return response()->json(['success' => true, 'data' => $q->get()]);
     });
     Route::get('/units/{unit}/parts-history', function (Request $req, Unit $unit) {
-        $query = \App\Models\BonPengeluaran::with(['items.item.itemStocks', 'warehouse', 'creator'])
+        $query = \App\Models\BonPengeluaran::with([
+                'items.item.itemStocks',
+                'items.fifoLayers',
+                'warehouse',
+                'creator',
+            ])
             ->where('unit_code', $unit->unit_code)
             ->where('status', 'issued')
             ->orderBy('issue_date', 'desc');

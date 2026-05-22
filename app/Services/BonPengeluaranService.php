@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\BonPengeluaran;
 use App\Models\BonPengeluaranItem;
+use App\Models\BonPengeluaranItemLayer;
 use App\Models\ItemStock;
 use App\Models\MaterialRequest;
 use App\Models\PermintaanMaterial;
@@ -376,6 +377,7 @@ class BonPengeluaranService
             $qtyRemaining   = $qtyNeeded;
             $totalFifoValue = 0.0;   // akumulasi nilai untuk hitung weighted avg
             $layerDetails   = [];    // untuk catatan di notes movement
+            $bonItemLayerData = [];  // detail per layer untuk laporan
 
             foreach ($layers as $layer) {
                 if ($qtyRemaining <= 0) break;
@@ -390,6 +392,17 @@ class BonPengeluaranService
                 $qtyRemaining   -= $ambil;
                 $layerDetails[]  = "Tgl {$layer->tanggal_masuk->format('d/m/Y')}: {$ambil} @ Rp " .
                                    number_format($layer->harga_satuan, 0, ',', '.');
+
+                // Simpan detail layer untuk laporan per-batch
+                $bonItemLayerData[] = [
+                    'stock_layer_id' => $layer->id,
+                    'qty'            => $ambil,
+                    'harga_satuan'   => (float) $layer->harga_satuan,
+                    'nilai'          => $ambil * (float) $layer->harga_satuan,
+                    'tanggal_masuk'  => $layer->tanggal_masuk->format('Y-m-d'),
+                    'source_type'    => $layer->source_type,
+                    'reference_no'   => $layer->reference_no,
+                ];
             }
 
             // Jika layer tidak cukup cover (edge case: layer belum dibuat untuk stok lama)
@@ -399,6 +412,16 @@ class BonPengeluaranService
                 $totalFifoValue += $qtyRemaining * $fallbackHarga;
                 $layerDetails[]  = "Stok lama (avg): {$qtyRemaining} @ Rp " .
                                    number_format($fallbackHarga, 0, ',', '.');
+                // Simpan fallback sebagai layer tanpa referensi
+                $bonItemLayerData[] = [
+                    'stock_layer_id' => null,
+                    'qty'            => $qtyRemaining,
+                    'harga_satuan'   => $fallbackHarga,
+                    'nilai'          => $qtyRemaining * $fallbackHarga,
+                    'tanggal_masuk'  => null,
+                    'source_type'    => 'legacy',
+                    'reference_no'   => 'Stok lama',
+                ];
             }
 
             // Harga FIFO rata-rata tertimbang untuk seluruh qty yang dikeluarkan
@@ -413,6 +436,14 @@ class BonPengeluaranService
                 'harga_satuan' => $fifoPrice,
                 'fifo_price'   => $fifoPrice,
             ]);
+
+            // ── Simpan detail layer per-batch ke DB ───────────────────────────
+            foreach ($bonItemLayerData as $layerRow) {
+                BonPengeluaranItemLayer::create(array_merge(
+                    $layerRow,
+                    ['bon_pengeluaran_item_id' => $bonItem->id]
+                ));
+            }
 
             // ── Buat StockMovement dengan harga FIFO ──────────────────────────
             StockMovement::create([

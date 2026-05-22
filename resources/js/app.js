@@ -60,7 +60,7 @@ app.use(Toast, {
 // Global properties
 app.config.globalProperties.$axios = axios
 app.config.globalProperties.$formatNumber = (n) => new Intl.NumberFormat('id-ID').format(n || 0)
-app.config.globalProperties.$formatCurrency = (n) => 'Rp ' + new Intl.NumberFormat('id-ID').format(n || 0)
+app.config.globalProperties.$formatCurrency = (n) => 'Rp ' + new Intl.NumberFormat('id-ID').format(Math.round(Number(n) || 0))
 app.config.globalProperties.$formatDate = (d) => d ? new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'
 
 app.mount('#app')

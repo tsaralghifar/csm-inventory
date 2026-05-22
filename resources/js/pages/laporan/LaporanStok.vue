@@ -139,82 +139,141 @@
                 <th class="text-center" style="width:60px">Sat.</th>
                 <th class="text-end" style="width:70px">Stok</th>
                 <th class="text-end" style="width:60px">Min</th>
-                <th class="text-end" style="width:130px">Harga FIFO</th>
-                <th class="text-end" style="width:140px">Nilai FIFO</th>
+                <th class="text-end" style="width:100px">Tgl. Masuk</th>
+                <th class="text-end" style="width:80px">Qty Layer</th>
+                <th class="text-end" style="width:130px">Harga Beli</th>
+                <th class="text-end" style="width:140px">Nilai Layer</th>
                 <th class="text-center" style="width:75px">Status</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="!filteredStocks.length">
-                <td :colspan="params.warehouse_id ? 10 : 11" class="text-center text-muted py-5">
+                <td :colspan="params.warehouse_id ? 12 : 13" class="text-center text-muted py-5">
                   <i class="bi bi-inbox fs-2 d-block mb-2 opacity-25"></i>
                   <span v-if="searchQuery">Tidak ada hasil untuk "<strong>{{ searchQuery }}</strong>"</span>
                   <span v-else>Tidak ada data stok</span>
                 </td>
               </tr>
-              <tr v-for="(s, i) in filteredStocks" :key="s.id"
-                :class="{
-                  'table-danger':  parseFloat(s.qty) < 0,
-                  'table-warning': parseFloat(s.qty) >= 0 && parseFloat(s.qty) <= parseFloat(s.item?.min_stock) && parseFloat(s.item?.min_stock) > 0
-                }">
-                <td class="ps-3 text-muted small">{{ i+1 }}</td>
-                <td>
-                  <code class="small" style="color:#1a3a5c;font-size:0.75rem;white-space:nowrap;">
-                    {{ s.item?.part_number || '—' }}
-                  </code>
-                </td>
-                <td>
-                  <div class="small fw-semibold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;">
-                    {{ s.item?.name }}
-                  </div>
-                  <small class="text-muted" v-if="s.item?.brand">{{ s.item.brand }}</small>
-                </td>
-                <td>
-                  <span class="badge bg-light text-dark border" style="font-size:0.7rem;white-space:nowrap;">
-                    {{ s.item?.category?.name || '—' }}
-                  </span>
-                </td>
-                <td v-if="!params.warehouse_id">
-                  <div class="d-flex flex-wrap gap-1">
-                    <span v-for="g in (s.gudang || [])" :key="g.id"
-                      class="badge bg-secondary bg-opacity-75"
-                      style="font-size:0.68rem;white-space:nowrap;"
-                      :title="g.name + ': ' + g.qty">
-                      {{ g.name.replace('Gudang ','') }}
-                      <span class="ms-1 fw-normal opacity-75">({{ g.qty }})</span>
+
+              <template v-for="(s, i) in filteredStocks" :key="s.id">
+                <!-- Baris item utama — hanya muncul sekali, tanpa kolom layer -->
+                <tr :class="{
+                    'table-danger':  parseFloat(s.qty) < 0,
+                    'table-warning': parseFloat(s.qty) >= 0 && parseFloat(s.qty) <= parseFloat(s.item?.min_stock) && parseFloat(s.item?.min_stock) > 0
+                  }"
+                  style="cursor:pointer;background:rgba(26,58,92,0.04);"
+                  @click="s._expanded = !s._expanded">
+                  <td class="ps-3 text-muted small fw-bold">{{ i+1 }}</td>
+                  <td>
+                    <code class="small" style="color:#1a3a5c;font-size:0.75rem;white-space:nowrap;">
+                      {{ s.item?.part_number || '—' }}
+                    </code>
+                  </td>
+                  <td>
+                    <div class="small fw-semibold d-flex align-items-center gap-1"
+                      style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;">
+                      <i :class="s._expanded ? 'bi bi-chevron-down' : 'bi bi-chevron-right'"
+                        class="text-muted" style="font-size:0.65rem;"></i>
+                      {{ s.item?.name }}
+                    </div>
+                    <small class="text-muted" v-if="s.item?.brand">{{ s.item.brand }}</small>
+                  </td>
+                  <td>
+                    <span class="badge bg-light text-dark border" style="font-size:0.7rem;white-space:nowrap;">
+                      {{ s.item?.category?.name || '—' }}
                     </span>
-                    <span v-if="!s.gudang?.length" class="text-muted small">—</span>
-                  </div>
-                </td>
-                <td class="text-center small text-muted">{{ s.item?.unit || '—' }}</td>
-                <td class="text-end">
-                  <span class="fw-bold small"
-                    :class="parseFloat(s.qty)<0 ? 'stock-minus' : parseFloat(s.qty)<=parseFloat(s.item?.min_stock) && parseFloat(s.item?.min_stock)>0 ? 'stock-low' : 'stock-ok'">
-                    {{ $formatNumber(s.qty) }}
-                  </span>
-                </td>
-                <td class="text-end small text-muted">{{ s.item?.min_stock || '0' }}</td>
-                <td class="text-end small">
-                  <span v-if="s.fifo_price > 0">
-                    {{ $formatCurrency(s.fifo_price) }}
-                    <span class="badge bg-info text-dark ms-1" style="font-size:0.6rem;">FIFO</span>
-                  </span>
-                  <span v-else-if="s.avg_price > 0" class="text-muted">
-                    {{ $formatCurrency(s.avg_price) }}
-                    <span class="badge bg-secondary ms-1" style="font-size:0.6rem;">AVG</span>
-                  </span>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td class="text-end small fw-semibold">
-                  {{ (s.fifo_price > 0 || s.avg_price > 0) ? $formatCurrency(Math.max(0, parseFloat(s.qty)) * (s.fifo_price > 0 ? s.fifo_price : s.avg_price)) : '—' }}
-                </td>
-                <td class="text-center">
-                  <span v-if="parseFloat(s.qty)<0" class="badge bg-danger" style="font-size:0.68rem;">Minus</span>
-                  <span v-else-if="parseFloat(s.qty)<=parseFloat(s.item?.min_stock) && parseFloat(s.item?.min_stock)>0"
-                    class="badge bg-warning text-dark" style="font-size:0.68rem;">Kritis</span>
-                  <span v-else class="badge bg-success" style="font-size:0.68rem;">Normal</span>
-                </td>
-              </tr>
+                  </td>
+                  <td v-if="!params.warehouse_id">
+                    <div class="d-flex flex-wrap gap-1">
+                      <span v-for="g in (s.gudang || [])" :key="g.id"
+                        class="badge bg-secondary bg-opacity-75"
+                        style="font-size:0.68rem;white-space:nowrap;">
+                        {{ g.name.replace('Gudang ','') }} ({{ g.qty }})
+                      </span>
+                    </div>
+                  </td>
+                  <td class="text-center small text-muted">{{ s.item?.unit || '—' }}</td>
+                  <td class="text-end">
+                    <span class="fw-bold small"
+                      :class="parseFloat(s.qty)<0 ? 'stock-minus' : parseFloat(s.qty)<=parseFloat(s.item?.min_stock) && parseFloat(s.item?.min_stock)>0 ? 'stock-low' : 'stock-ok'">
+                      {{ $formatNumber(s.qty) }}
+                    </span>
+                  </td>
+                  <td class="text-end small text-muted">{{ s.item?.min_stock || '0' }}</td>
+                  <!-- Kolom layer kosong di baris utama -->
+                  <td class="text-end small text-muted">
+                    <span class="badge bg-info text-dark" style="font-size:0.6rem;">
+                      {{ (s.layers||[]).length }} batch
+                    </span>
+                  </td>
+                  <td class="text-end small text-muted fw-semibold">{{ $formatNumber(s.qty) }}</td>
+                  <td class="text-end small text-muted">—</td>
+                  <td class="text-end small fw-bold text-primary">
+                    {{ $formatCurrency((s.layers||[]).reduce((a,l)=>a+l.nilai,0)) }}
+                  </td>
+                  <td class="text-center">
+                    <span v-if="parseFloat(s.qty)<0" class="badge bg-danger" style="font-size:0.68rem;">Minus</span>
+                    <span v-else-if="parseFloat(s.qty)<=parseFloat(s.item?.min_stock) && parseFloat(s.item?.min_stock)>0"
+                      class="badge bg-warning text-dark" style="font-size:0.68rem;">Kritis</span>
+                    <span v-else class="badge bg-success" style="font-size:0.68rem;">Normal</span>
+                  </td>
+                </tr>
+
+                <!-- Baris detail per layer FIFO -->
+                <template v-if="s._expanded !== false && s.layers?.length">
+                  <tr v-for="(layer, li) in s.layers" :key="'layer-'+layer.id"
+                    style="background:rgba(26,58,92,0.015);">
+                    <td class="ps-3 text-muted" style="font-size:0.68rem;">
+                      <span class="ms-3 text-muted">└</span>
+                    </td>
+                    <td colspan="2">
+                      <div class="d-flex align-items-center gap-2 ps-3">
+                        <span class="badge" style="font-size:0.6rem;background:#1a3a5c;">
+                          Batch {{ li + 1 }}
+                        </span>
+                        <code class="text-muted" style="font-size:0.68rem;">{{ layer.reference_no || '—' }}</code>
+                        <span class="badge bg-light text-muted border" style="font-size:0.6rem;">
+                          {{ sourceLabel(layer.source_type) }}
+                        </span>
+                      </div>
+                    </td>
+                    <td></td>
+                    <td v-if="!params.warehouse_id"></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <!-- Tgl Masuk -->
+                    <td class="text-end small text-muted">{{ $formatDate(layer.tanggal_masuk) }}</td>
+                    <!-- Qty Layer -->
+                    <td class="text-end">
+                      <span class="fw-semibold small text-success">{{ $formatNumber(layer.qty_sisa) }}</span>
+                      <span class="text-muted small ms-1" v-if="layer.qty_awal !== layer.qty_sisa">
+                        / {{ $formatNumber(layer.qty_awal) }}
+                      </span>
+                    </td>
+                    <!-- Harga Beli per batch -->
+                    <td class="text-end small">
+                      <span class="fw-semibold text-primary">{{ $formatCurrency(layer.harga_satuan) }}</span>
+                      <span class="badge bg-info text-dark ms-1" style="font-size:0.55rem;">FIFO</span>
+                    </td>
+                    <!-- Nilai layer -->
+                    <td class="text-end small fw-semibold">{{ $formatCurrency(layer.nilai) }}</td>
+                    <td></td>
+                  </tr>
+                </template>
+
+                <!-- Baris total nilai jika ada lebih dari 1 layer -->
+                <tr v-if="s._expanded !== false && s.layers?.length > 1"
+                  style="background:rgba(26,58,92,0.03);border-top:1px dashed #dee2e6;">
+                  <td :colspan="params.warehouse_id ? 10 : 11" class="text-end small text-muted pe-2">
+                    Total Nilai FIFO
+                  </td>
+                  <td class="text-end small fw-bold text-primary">
+                    {{ $formatCurrency((s.layers||[]).reduce((a,l)=>a+l.nilai,0)) }}
+                  </td>
+                  <td></td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -234,9 +293,9 @@
           <small class="text-muted d-none d-md-inline">
             Nilai ditampilkan:
             <strong class="text-success">
-              {{ $formatCurrency(filteredStocks.reduce((a,s)=>a+((s.fifo_price>0||s.avg_price>0)?Math.max(0,parseFloat(s.qty))*(s.fifo_price>0?s.fifo_price:s.avg_price):0),0)) }}
+              {{ $formatCurrency(filteredStocks.reduce((a,s)=>a+(s.layers||[]).reduce((b,l)=>b+l.nilai,0),0)) }}
             </strong>
-            <span class="badge bg-info text-dark ms-1" style="font-size:0.65rem;">FIFO</span>
+            <span class="badge bg-info text-dark ms-1" style="font-size:0.65rem;">FIFO per Batch</span>
           </small>
         </div>
       </div>
@@ -280,6 +339,12 @@ onMounted(async () => {
   const r = await axios.get('/warehouses'); warehouses.value = r.data.data
   if (!auth.isSuperuser && !auth.isAdminHO && auth.userWarehouseId) params.value.warehouse_id = auth.userWarehouseId
 })
+
+function sourceLabel(type) {
+  const map = { po: 'PO', import: 'Saldo Awal', transfer: 'Transfer', opname: 'Opname' }
+  return map[type] || type
+}
+
 
 async function load() {
   loading.value = true
@@ -396,46 +461,63 @@ async function exportExcel() {
   R++
 
   // Row 6: Table header
-  ;['#','Part Number','Nama Barang','Kategori','Brand','Gudang','Stok','Satuan','Stok Min','Harga','Nilai','Status']
+  ;['#','Part Number','Nama Barang','Kategori','Brand','Sat.','Total Stok','Stok Min','Tgl. Masuk','Qty Batch','Harga Beli (FIFO)','Nilai Batch','Status']
     .forEach((h,c) => sc(R,c,h,S.th))
   R++
 
-  const totalNilai = stocks.value.reduce((acc,s) => {
-    const harga = s.fifo_price > 0 ? s.fifo_price : s.avg_price
-    return acc + (harga > 0 ? Math.max(0, s.qty) * harga : 0)
-  }, 0)
+  const totalNilai = stocks.value.reduce((acc,s) => acc + (s.layers||[]).reduce((b,l)=>b+l.nilai,0), 0)
 
   stocks.value.forEach((s,i) => {
     const qty=s.qty, minStock=s.item?.min_stock||0
     const isMinus=qty<0, isKritis=!isMinus&&minStock>0&&qty<=minStock
-    const harga = s.fifo_price > 0 ? s.fifo_price : s.avg_price
-    const nilai = harga > 0 ? Math.max(0, qty) * harga : 0
-    const hargaLabel = harga > 0 ? fmtCurrency(harga) + (s.fifo_price > 0 ? ' [FIFO]' : ' [AVG]') : '-'
     const qtyColor=isMinus?'DC2626':isKritis?'D97706':'15803D'
     const sLbl=isMinus?'Minus':isKritis?'Kritis':'Normal'
     const sFill=isMinus?'FEE2E2':isKritis?'FEF3C7':'DCFCE7'
     const sFont=isMinus?'DC2626':isKritis?'92400E':'15803D'
+    const layers = s.layers || []
 
-    sc(R,0,  i+1,                          row({font:{sz:10,color:{rgb:'94A3B8'}},alignment:{horizontal:'center',vertical:'center'}}))
-    sc(R,1,  s.item?.part_number||'',      row({font:{bold:true,sz:10,color:{rgb:'1E3A5F'},name:'Courier New'},alignment:{vertical:'center'}}))
-    sc(R,2,  s.item?.name||'',             row({font:{bold:true,sz:10},alignment:{vertical:'center'}}))
-    sc(R,3,  s.item?.category?.name||'-',  row({font:{sz:9,color:{rgb:'475569'}},alignment:{horizontal:'center',vertical:'center'}}))
-    sc(R,4,  s.item?.brand||'-',           row({font:{sz:9,color:{rgb:'64748B'}},alignment:{vertical:'center'}}))
-    sc(R,5,  s.warehouse?.name||'-',       row({font:{sz:9,color:{rgb:'334155'}},alignment:{horizontal:'center',vertical:'center'}}))
-    sc(R,6,  qty,                          row({font:{bold:true,sz:10,color:{rgb:qtyColor}},alignment:{horizontal:'center',vertical:'center'}}))
-    sc(R,7,  s.item?.unit||'',             row({font:{sz:9,color:{rgb:'64748B'}},alignment:{horizontal:'center',vertical:'center'}}))
-    sc(R,8,  minStock,                     row({font:{sz:9,color:{rgb:'64748B'}},alignment:{horizontal:'center',vertical:'center'}}))
-    sc(R,9,  hargaLabel,                   row({font:{sz:9},alignment:{horizontal:'right',vertical:'center'}}))
-    sc(R,10, nilai>0?fmtCurrency(nilai):'-', row({font:{bold:true,sz:10},alignment:{horizontal:'right',vertical:'center'}}))
-    sc(R,11, sLbl,                         row({font:{bold:true,sz:9,color:{rgb:sFont}},fill:{fgColor:{rgb:sFill}},alignment:{horizontal:'center',vertical:'center'}}))
-    R++
+    if (layers.length === 0) {
+      const row=i%2===0?S.rowEven:S.rowOdd
+      sc(R,0,  i+1,                         row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+      sc(R,1,  s.item?.part_number||'',     row({font:{bold:true,sz:10,color:{rgb:'1E3A5F'},name:'Courier New'},alignment:{vertical:'center'}}))
+      sc(R,2,  s.item?.name||'',            row({font:{bold:true,sz:10},alignment:{vertical:'center'}}))
+      sc(R,3,  s.item?.category?.name||'-', row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+      sc(R,4,  s.item?.brand||'-',          row({font:{sz:9},alignment:{vertical:'center'}}))
+      sc(R,5,  s.item?.unit||'',            row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+      sc(R,6,  qty,                         row({font:{bold:true,sz:11,color:{rgb:qtyColor}},alignment:{horizontal:'center',vertical:'center'}}))
+      sc(R,7,  minStock,                    row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+      sc(R,8,  '-',                         row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+      sc(R,9,  '-',                         row({font:{sz:9},alignment:{horizontal:'right',vertical:'center'}}))
+      sc(R,10, '-',                         row({font:{sz:9},alignment:{horizontal:'right',vertical:'center'}}))
+      sc(R,11, '-',                         row({font:{bold:true,sz:10},alignment:{horizontal:'right',vertical:'center'}}))
+      sc(R,12, sLbl,                        row({font:{bold:true,sz:9,color:{rgb:sFont}},fill:{fgColor:{rgb:sFill}},alignment:{horizontal:'center',vertical:'center'}}))
+      R++
+    } else {
+      layers.forEach((layer, li) => {
+        const row=i%2===0?S.rowEven:S.rowOdd
+        sc(R,0,  li===0 ? i+1 : '',                    row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+        sc(R,1,  li===0 ? s.item?.part_number||'' : '', row({font:{bold:true,sz:10,color:{rgb:'1E3A5F'},name:'Courier New'},alignment:{vertical:'center'}}))
+        sc(R,2,  li===0 ? s.item?.name||'' : `  └ Batch ${li+1} (${layer.reference_no||''})`, row({font:{bold:li===0,sz:10,italic:li>0,color:{rgb:li>0?'64748B':'000000'}},alignment:{vertical:'center'}}))
+        sc(R,3,  li===0 ? s.item?.category?.name||'-' : '', row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+        sc(R,4,  li===0 ? s.item?.brand||'-' : '',     row({font:{sz:9},alignment:{vertical:'center'}}))
+        sc(R,5,  li===0 ? s.item?.unit||'' : '',        row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+        sc(R,6,  li===0 ? qty : '',                     row({font:{bold:true,sz:11,color:{rgb:qtyColor}},alignment:{horizontal:'center',vertical:'center'}}))
+        sc(R,7,  li===0 ? minStock : '',                row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+        sc(R,8,  layer.tanggal_masuk||'',               row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
+        sc(R,9,  layer.qty_sisa,                        row({font:{sz:10,color:{rgb:'15803D'}},alignment:{horizontal:'right',vertical:'center'}}))
+        sc(R,10, fmtCurrency(layer.harga_satuan)+' [FIFO]', row({font:{sz:9,color:{rgb:'1E40AF'}},alignment:{horizontal:'right',vertical:'center'}}))
+        sc(R,11, layer.nilai>0?fmtCurrency(layer.nilai):'-', row({font:{bold:true,sz:10},alignment:{horizontal:'right',vertical:'center'}}))
+        sc(R,12, li===0 ? sLbl : '',                    row({font:{bold:true,sz:9,color:{rgb:sFont}},fill:{fgColor:{rgb:sFill}},alignment:{horizontal:'center',vertical:'center'}}))
+        R++
+      })
+    }
   })
 
   // Total row
-  sc(R,0,'TOTAL NILAI STOK',S.totalLbl); mg(R,0,R,9)
-  for(let c=1;c<=9;c++) sc(R,c,'',S.totalMid)
-  sc(R,10,fmtCurrency(totalNilai),S.totalVal)
-  sc(R,11,'',S.totalEnd)
+  sc(R,0,'TOTAL NILAI STOK',S.totalLbl); mg(R,0,R,10)
+  for(let c=1;c<=10;c++) sc(R,c,'',S.totalMid)
+  sc(R,11,fmtCurrency(totalNilai),S.totalVal)
+  sc(R,12,'',S.totalEnd)
   R++
 
   // Footer

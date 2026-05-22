@@ -185,40 +185,74 @@
                       <thead class="table-light">
                         <tr>
                           <th class="ps-3" style="width:4%">#</th>
-                          <th style="width:32%">Nama Barang</th>
-                          <th style="width:18%">Part Number</th>
-                          <th class="text-end" style="width:8%">Qty</th>
-                          <th style="width:8%">Satuan</th>
-                          <th class="text-end" style="width:14%">Harga Satuan</th>
-                          <th class="text-end" style="width:14%">Subtotal</th>
+                          <th style="width:25%">Nama Barang</th>
+                          <th style="width:15%">Part Number</th>
+                          <th class="text-end" style="width:7%">Qty</th>
+                          <th style="width:7%">Sat.</th>
+                          <th class="text-end" style="width:12%">Tgl. Beli</th>
+                          <th class="text-end" style="width:14%">Harga Beli</th>
+                          <th class="text-end" style="width:12%">Subtotal</th>
                           <th style="width:10%">Keterangan</th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr v-for="(item, idx) in bon.items" :key="item.id">
-                          <td class="ps-3 text-muted small">{{ idx + 1 }}</td>
-                          <td class="fw-semibold small">{{ item.nama_barang }}</td>
-                          <td><code class="small text-primary">{{ item.item?.part_number || '-' }}</code></td>
-                          <td class="text-end fw-bold small">{{ item.qty }}</td>
-                          <td class="text-muted small">{{ item.satuan }}</td>
-                          <td class="text-end small">
-                            <span v-if="getHargaSatuan(item) > 0">
-                              {{ $formatCurrency(getHargaSatuan(item)) }}
-                              <span v-if="parseFloat(item.fifo_price) > 0"
-                                class="badge bg-info text-dark ms-1" style="font-size:0.55rem;">FIFO</span>
-                              <span v-else class="badge bg-secondary ms-1" style="font-size:0.55rem;">AVG</span>
-                            </span>
-                            <span v-else class="text-muted">-</span>
-                          </td>
-                          <td class="text-end small fw-semibold text-success">
-                            {{ bonItemSubtotal(item) > 0 ? $formatCurrency(bonItemSubtotal(item)) : '-' }}
-                          </td>
-                          <td><small class="text-muted">{{ item.keterangan || '-' }}</small></td>
-                        </tr>
+                        <template v-for="(item, idx) in bon.items" :key="item.id">
+                          <!-- Jika ada fifoLayers → tampilkan per batch -->
+                          <template v-if="item.fifo_layers?.length || item.fifoLayers?.length">
+                            <tr v-for="(layer, li) in (item.fifo_layers || item.fifoLayers)" :key="'layer-'+layer.id"
+                              style="background:rgba(26,58,92,0.02)">
+                              <td class="ps-3 text-muted small">
+                                {{ li === 0 ? idx + 1 : '' }}
+                              </td>
+                              <td class="fw-semibold small">
+                                {{ li === 0 ? item.nama_barang : '' }}
+                                <span v-if="li > 0" class="ms-2 text-muted" style="font-size:0.65rem;">└ Batch {{ li + 1 }}</span>
+                              </td>
+                              <td>
+                                <code v-if="li === 0" class="small text-primary">{{ item.item?.part_number || '-' }}</code>
+                              </td>
+                              <td class="text-end fw-bold small">{{ $formatNumber(layer.qty) }}</td>
+                              <td class="text-muted small">{{ item.satuan }}</td>
+                              <td class="text-end small text-muted">
+                                {{ layer.tanggal_masuk ? $formatDate(layer.tanggal_masuk) : '-' }}
+                              </td>
+                              <td class="text-end small">
+                                <span class="fw-semibold text-primary">{{ $formatCurrency(layer.harga_satuan) }}</span>
+                                <span class="badge bg-info text-dark ms-1" style="font-size:0.55rem;">FIFO</span>
+                              </td>
+                              <td class="text-end small fw-semibold text-success">
+                                {{ $formatCurrency(layer.nilai) }}
+                              </td>
+                              <td><small class="text-muted">{{ li === 0 ? item.keterangan || '-' : '' }}</small></td>
+                            </tr>
+                          </template>
+                          <!-- Tidak ada layer → tampilkan 1 baris biasa -->
+                          <tr v-else>
+                            <td class="ps-3 text-muted small">{{ idx + 1 }}</td>
+                            <td class="fw-semibold small">{{ item.nama_barang }}</td>
+                            <td><code class="small text-primary">{{ item.item?.part_number || '-' }}</code></td>
+                            <td class="text-end fw-bold small">{{ item.qty }}</td>
+                            <td class="text-muted small">{{ item.satuan }}</td>
+                            <td class="text-end small text-muted">-</td>
+                            <td class="text-end small">
+                              <span v-if="getHargaSatuan(item) > 0">
+                                {{ $formatCurrency(getHargaSatuan(item)) }}
+                                <span v-if="parseFloat(item.fifo_price) > 0"
+                                  class="badge bg-info text-dark ms-1" style="font-size:0.55rem;">FIFO</span>
+                                <span v-else class="badge bg-secondary ms-1" style="font-size:0.55rem;">AVG</span>
+                              </span>
+                              <span v-else class="text-muted">-</span>
+                            </td>
+                            <td class="text-end small fw-semibold text-success">
+                              {{ bonItemSubtotal(item) > 0 ? $formatCurrency(bonItemSubtotal(item)) : '-' }}
+                            </td>
+                            <td><small class="text-muted">{{ item.keterangan || '-' }}</small></td>
+                          </tr>
+                        </template>
                       </tbody>
                       <tfoot v-if="bonTotal(bon) > 0">
                         <tr class="table-light border-top">
-                          <td colspan="6" class="text-end fw-bold small pe-2">Total Pengeluaran BON ini:</td>
+                          <td colspan="7" class="text-end fw-bold small pe-2">Total Pengeluaran BON ini:</td>
                           <td class="text-end fw-bold small text-danger">{{ $formatCurrency(bonTotal(bon)) }}</td>
                           <td></td>
                         </tr>
@@ -294,6 +328,11 @@ function getHargaSatuan(item) {
 }
 
 function bonItemSubtotal(item) {
+  // Jika ada fifoLayers → jumlahkan nilai dari semua layer
+  const layers = item.fifo_layers || item.fifoLayers || []
+  if (layers.length > 0) {
+    return layers.reduce((sum, l) => sum + (parseFloat(l.nilai) || 0), 0)
+  }
   return getHargaSatuan(item) * (parseFloat(item.qty) || 0)
 }
 

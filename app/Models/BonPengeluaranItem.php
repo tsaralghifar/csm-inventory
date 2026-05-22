@@ -27,4 +27,11 @@ class BonPengeluaranItem extends Model
     {
         return $this->belongsTo(Item::class);
     }
+
+    public function fifoLayers()
+    {
+        return $this->hasMany(BonPengeluaranItemLayer::class, 'bon_pengeluaran_item_id')
+                    ->orderBy('tanggal_masuk')
+                    ->orderBy('id');
+    }
 }

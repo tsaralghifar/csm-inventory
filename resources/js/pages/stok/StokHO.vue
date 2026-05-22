@@ -712,7 +712,6 @@ async function submitStockOut() {
     if (stockItems.length) {
       const res = await axios.post('/bon-pengeluaran', {
         ...basePayload,
-        auto_issue: true,
         items: stockItems.map(r => ({
           item_id:     r.item_id,
           nama_barang: r.itemSearch.split(' - ').slice(1).join(' - ') || r.itemSearch,
@@ -721,7 +720,7 @@ async function submitStockOut() {
           keterangan:  null,
         })),
       })
-      messages.push(`✅ Bon ${res.data.data?.bon_number} — ${stockItems.length} barang dikeluarkan`)
+      messages.push(`📋 Bon ${res.data.data?.bon_number} dibuat. Buka menu Bon Pengeluaran untuk konfirmasi mekanik sebelum barang dikeluarkan.`)
     }
 
     // 2. Buat Permintaan Material (PM) draft untuk barang stok kosong
