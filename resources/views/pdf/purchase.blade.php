@@ -99,17 +99,18 @@ table.dt tr.r-po td {
 table.dt tr.r-even td { background:#f8fafc; }
 table.dt tr.r-odd  td { background:#ffffff; }
 table.dt tr.r-overdue td { background:#fff5f5; }
+table.dt tr.r-po-last td { border-bottom:2px solid #c5d8ef !important; }
 
 /* Item sub-rows */
 table.dt tr.r-item td {
-  padding:2px 4px; border-right:1px solid #e8edf5;
-  border-bottom:1px dashed #e2e8f0;
-  background:#f0f5ff; font-size:7px; vertical-align:middle; overflow:hidden;
+  padding:3px 4px; border-right:1px solid #dde5f0;
+  border-bottom:1px solid #e8edf8;
+  background:#f5f8ff; font-size:7px; vertical-align:middle; overflow:hidden;
 }
 
 /* Invoice sub-rows */
 table.dt tr.r-inv td {
-  padding:2px 4px; border-right:1px solid #e8edf5;
+  padding:3px 4px; border-right:1px solid #e8edf5;
   border-bottom:1px dashed #fde68a;
   background:#fffbeb; font-size:7px; vertical-align:middle; overflow:hidden;
 }
@@ -447,35 +448,27 @@ table.dt tr.r-total td.rv { color:#4ade80; font-size:9.5px; text-align:right; }
 
     {{-- ── ITEM ROWS ── --}}
     @foreach($po['items'] as $li => $item)
-    <tr class="r-item">
-      <td style="text-align:center;color:#c8d8f0;font-size:9px;">&#x2514;</td>
-      <td colspan="2" style="padding-left:12px;">
-        <span class="bdg" style="background:#1a3a5c;color:#fff;font-size:6.5px;">{{ $li+1 }}</span>
-        &nbsp;
-        <span style="font-weight:bold;color:#0f172a;">{{ $item['nama_barang'] }}</span>
+    @php $isLastItem = $li === count($po['items']) - 1 && empty($po['supplier_invoices']); @endphp
+    <tr class="r-item{{ $isLastItem ? ' r-po-last' : '' }}">
+      <td style="border-left:3px solid #1a3a5c;"></td>
+      <td colspan="6" style="padding-left:14px;">
+        <span style="color:#94a3b8;font-size:7px;margin-right:4px;">{{ $li+1 }}.</span>
+        <span style="font-weight:bold;color:#1e293b;font-size:7.5px;">{{ $item['nama_barang'] }}</span>
         @if(!empty($item['part_number']))
-          &nbsp;<span class="mono cmu" style="font-size:7px;">{{ $item['part_number'] }}</span>
+          <span class="mono cmu" style="font-size:6.5px;margin-left:4px;">{{ $item['part_number'] }}</span>
+        @endif
+        @if($item['diskon_persen'] > 0)
+          <span class="crd" style="font-size:6.5px;margin-left:4px;">(Diskon {{ $item['diskon_persen'] }}%)</span>
         @endif
         @if(!empty($item['item']['category']))
-          &nbsp;<span class="bdg b-src" style="font-size:6px;">{{ $item['item']['category'] }}</span>
+          <br><span style="display:inline-block;margin-top:2px;background:#e2e8f0;color:#475569;font-size:6px;padding:1px 5px;border-radius:3px;">{{ $item['item']['category'] }}</span>
         @endif
       </td>
-      <td style="text-align:center;color:#64748b;font-size:7.5px;">{{ $item['kode_unit'] ?? '—' }}</td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td></td>
-      {{-- Qty × Harga --}}
-      <td style="text-align:right;color:#64748b;font-size:7.5px;">
-        {{ $num($item['qty']) }} {{ $item['satuan'] }}
-        &times; {{ $rp($item['harga_satuan']) }}
-        @if($item['diskon_persen'] > 0)
-          <br><span class="crd" style="font-size:6.5px;">Diskon {{ $item['diskon_persen'] }}%</span>
-        @endif
+      <td style="text-align:right;color:#475569;font-size:7px;">
+        {{ $num($item['qty']) }} {{ $item['satuan'] }} &times; {{ $rp($item['harga_satuan']) }}
       </td>
-      <td></td>
-      {{-- Total item --}}
-      <td style="text-align:right;font-weight:bold;color:#1a3a5c;font-size:8px;">
+      <td></td>{{-- Nilai PPN kosong untuk item --}}
+      <td style="text-align:right;font-weight:bold;color:#1a3a5c;font-size:7.5px;">
         {{ $rp($item['total_harga']) }}
       </td>
       <td colspan="2"></td>

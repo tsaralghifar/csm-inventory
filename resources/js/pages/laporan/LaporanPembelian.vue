@@ -238,14 +238,18 @@
                 <template v-if="po._expanded">
                   <tr v-for="(item, ii) in (po.items || [])" :key="'item-'+item.id"
                       style="background:rgba(26,58,92,0.018);">
-                    <td class="ps-3 text-muted" style="font-size:.68rem;">
-                      <span class="ms-3 text-muted">└</span>
-                    </td>
+                    <td class="ps-3" style="border-left:3px solid #1a3a5c;"></td>
                     <td colspan="2">
-                      <div class="d-flex align-items-center gap-2 ps-3">
-                        <span class="badge" style="font-size:.6rem;background:#1a3a5c;">{{ ii + 1 }}</span>
-                        <span class="small fw-semibold">{{ item.nama_barang }}</span>
-                        <code class="text-muted" style="font-size:.68rem;">{{ item.part_number || '' }}</code>
+                      <div class="d-flex align-items-start gap-2 ps-3">
+                        <span class="text-muted" style="font-size:.7rem;min-width:14px;padding-top:1px;">{{ ii + 1 }}.</span>
+                        <div>
+                          <div class="small fw-semibold">{{ item.nama_barang }}
+                            <code v-if="item.part_number" class="text-muted ms-1" style="font-size:.68rem;">{{ item.part_number }}</code>
+                          </div>
+                          <div v-if="item.item?.category" class="mt-1">
+                            <span class="badge" style="font-size:.6rem;background:#e2e8f0;color:#475569;font-weight:500;">{{ item.item.category }}</span>
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td class="small text-muted">{{ item.kode_unit || '—' }}</td>
@@ -488,9 +492,22 @@ async function exportExcel() {
     ws['!merges'] = []
 
     ws['!cols'] = [
-      {wch:4},{wch:20},{wch:26},{wch:14},{wch:11},{wch:12},
-      {wch:10},{wch:14},{wch:18},{wch:12},{wch:18},{wch:14},{wch:14},
+      {wch:4},   // # 
+      {wch:22},  // No. PO / nama barang
+      {wch:24},  // Vendor
+      {wch:16},  // Gudang
+      {wch:11},  // Tgl PO
+      {wch:11},  // Pembayaran
+      {wch:9},   // Tenor
+      {wch:13},  // Jatuh Tempo
+      {wch:19},  // Subtotal / qty×harga
+      {wch:15},  // Nilai PPN
+      {wch:17},  // Grand Total
+      {wch:12},  // Status PO
+      {wch:13},  // Status Bayar
     ]
+    ws['!rows'] = []
+    const setRowH = (r, hpt) => { ws['!rows'][r] = { hpt } }
 
     const B = (style='thin', color='D0D9E8') => ({ style, color: { rgb: color } })
     const brd = () => ({ top:B(), bottom:B(), left:B(), right:B() })
@@ -521,9 +538,9 @@ async function exportExcel() {
 
     // Header
     for (let c = 0; c <= 12; c++) sc(R, c, '', S.h1)
-    sc(R, 0, 'PT. CIPTA SARANA MAKMUR', S.h1); mg(R, 0, R, 12); R++
+    sc(R, 0, 'PT. CIPTA SARANA MAKMUR', S.h1); mg(R, 0, R, 12); setRowH(R, 22); R++
     for (let c = 0; c <= 12; c++) sc(R, c, '', S.h2)
-    sc(R, 0, 'LAPORAN PEMBELIAN BARANG', S.h2); mg(R, 0, R, 12); R++
+    sc(R, 0, 'LAPORAN PEMBELIAN BARANG', S.h2); mg(R, 0, R, 12); setRowH(R, 16); R++
 
     // Info row
     sc(R,0,'Periode',S.iL);    sc(R,1,'',S.iL);   mg(R,0,R,1)
@@ -531,14 +548,14 @@ async function exportExcel() {
     sc(R,5,'Jenis Bayar',S.iL); sc(R,6,'',S.iL);  mg(R,5,R,6)
     sc(R,7,ptLabel[params.value.payment_type],S.iV); sc(R,8,'',S.iV); sc(R,9,'',S.iV); mg(R,7,R,9)
     sc(R,10,'Dicetak',S.iL); sc(R,11,'',S.iL); mg(R,10,R,11)
-    sc(R,12,`${dateStr} ${timeStr}`,S.iV); R++
+    sc(R,12,`${dateStr} ${timeStr}`,S.iV); setRowH(R, 18); R++
 
     // KPI
     ;[['Total PO','1A3A5C'],['Nilai Total','047857'],['PO Cash','0369A1'],['PO Kredit','B45309']]
       .forEach(([lbl, clr], ci) => {
         const s = ci * 3, e = ci === 3 ? 12 : s + 2
         sc(R, s, lbl, S.kL(clr)); for(let x=s+1;x<=e;x++) sc(R,x,'',S.kL(clr)); mg(R,s,R,e)
-      }); R++
+      }); setRowH(R, 14); R++
     ;[
       [summary.value.total_po, '1A3A5C'],
       [fmtRp(summary.value.total_nilai), '047857'],
@@ -547,13 +564,13 @@ async function exportExcel() {
     ].forEach(([val, clr], ci) => {
         const s = ci * 3, e = ci === 3 ? 12 : s + 2
         sc(R, s, val, S.kV(clr)); for(let x=s+1;x<=e;x++) sc(R,x,'',S.kV(clr)); mg(R,s,R,e)
-      }); R++
+      }); setRowH(R, 28); R++
 
     R++ // spacer
 
     // Table header
     ;['#','No. PO','Vendor / Supplier','Gudang','Tgl. PO','Pembayaran','Tenor (hr)','Jatuh Tempo','Subtotal','Nilai PPN','Grand Total','Status PO','Status Bayar']
-      .forEach((h, c) => sc(R, c, h, S.th)); R++
+      .forEach((h, c) => sc(R, c, h, S.th)); setRowH(R, 28); R++
 
     orders.value.forEach((po, i) => {
       const row = i % 2 === 0 ? S.re : S.ro
@@ -574,23 +591,39 @@ async function exportExcel() {
       sc(R, 10, fmtRp(po.grand_total),          row({font:{bold:true,sz:10},alignment:{horizontal:'right',vertical:'center'}}))
       sc(R, 11, sLbl,                           row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
       sc(R, 12, bayar,                          row({font:{bold:true,sz:9,color:{rgb:bayar==='Lunas'?'15803D':bayar==='Jatuh Tempo'?'DC2626':'D97706'}},alignment:{horizontal:'center',vertical:'center'}}))
-      R++
+      setRowH(R, 20); R++
 
-      // Items
+      // Items — indented rows, no confusion with PO row data
       ;(po.items || []).forEach((item, ii) => {
-        sc(R, 0, '',                            S.ri())
-        sc(R, 1, `  └ ${ii+1}`,                S.ri({font:{sz:8,italic:true,color:{rgb:'94A3B8'}}}))
-        sc(R, 2, item.nama_barang,              S.ri({font:{sz:8,bold:true,italic:false}}))
-        sc(R, 3, item.kode_unit || '—',         S.ri())
-        sc(R, 4, '',                            S.ri())
-        sc(R, 5, '',                            S.ri())
-        sc(R, 6, '',                            S.ri())
-        sc(R, 7, '',                            S.ri())
-        sc(R, 8, `${item.qty} ${item.satuan} × ${fmtRp(item.harga_satuan)}`, S.ri({alignment:{horizontal:'right'}}))
-        sc(R, 9, '',                            S.ri())
-        sc(R, 10, fmtRp(item.total_harga),      S.ri({font:{sz:8,bold:true},alignment:{horizontal:'right'}}))
-        sc(R, 11, '', S.ri()); sc(R, 12, '', S.ri())
-        R++
+        const iStyle = {
+          font:   { sz:8, color:{rgb:'374151'} },
+          fill:   { fgColor:{ rgb: i%2===0 ? 'F0F5FF' : 'E8EFFA' } },
+          border: brd(),
+        }
+        const iLabel = {
+          font:   { sz:8, italic:true, color:{rgb:'6B7280'} },
+          fill:   { fgColor:{ rgb: i%2===0 ? 'F0F5FF' : 'E8EFFA' } },
+          border: brd(),
+          alignment: { horizontal:'center', vertical:'center' },
+        }
+        // Col 0: kosong (bukan nomor, agar tidak membingungkan dengan nomor PO)
+        sc(R, 0, '', { ...iStyle, border:{ ...brd(), left:{ style:'medium', color:{rgb:'1A3A5C'} } } })
+        // Col 1: nomor item + nama barang (merge 1-3)
+        sc(R, 1, `  ${ii+1}. ${item.nama_barang}`, { ...iStyle, font:{sz:8,bold:true,color:{rgb:'1a3a5c'}}, alignment:{vertical:'center'} })
+        sc(R, 2, '', iStyle); sc(R, 3, '', iStyle); mg(R, 1, R, 3)
+        // Col 4: satuan/unit
+        sc(R, 4, item.satuan || '—', { ...iStyle, alignment:{horizontal:'center',vertical:'center'} })
+        // Col 5-7: kosong
+        sc(R, 5, '', iStyle); sc(R, 6, '', iStyle); sc(R, 7, '', iStyle)
+        // Col 8: qty × harga
+        sc(R, 8, `${item.qty} × ${fmtRp(item.harga_satuan)}`, { ...iStyle, alignment:{horizontal:'right',vertical:'center'} })
+        // Col 9: kosong (PPN)
+        sc(R, 9, '', iStyle)
+        // Col 10: total harga item
+        sc(R, 10, fmtRp(item.total_harga), { ...iStyle, font:{sz:8,bold:true,color:{rgb:'1a3a5c'}}, alignment:{horizontal:'right',vertical:'center'} })
+        // Col 11-12: kosong
+        sc(R, 11, '', iStyle); sc(R, 12, '', iStyle)
+        setRowH(R, 16); R++
       })
     })
 
