@@ -93,6 +93,12 @@
         <router-link v-if="can('view-reports')" to="/laporan/mutasi" class="csm-nav-link" :class="{ active: $route.path === '/laporan/mutasi' }">
           <i class="bi bi-arrow-left-right"></i> Laporan Mutasi
         </router-link>
+        <router-link v-if="can('view-reports')" to="/laporan/pembelian" class="csm-nav-link" :class="{ active: $route.path === '/laporan/pembelian' }">
+          <i class="bi bi-bag-check"></i> Laporan Pembelian
+        </router-link>
+        <router-link v-if="can('view-reports')" to="/analitik-harga" class="csm-nav-link" :class="{ active: $route.path.startsWith('/analitik-harga') }">
+          <i class="bi bi-graph-up-arrow"></i> Analitik Harga
+        </router-link>
         <router-link v-if="can('view-accounting')" to="/laporan/accounting" class="csm-nav-link" :class="{ active: $route.path === '/laporan/accounting' }">
           <i class="bi bi-file-earmark-bar-graph"></i> Laporan Accounting
         </router-link>

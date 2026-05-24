@@ -118,6 +118,55 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
             'meta'    => ['total' => $data->total(), 'page' => $data->currentPage(), 'last_page' => $data->lastPage()],
         ]);
     });
+
+    Route::get('/units/{unit}/parts-history/pdf', function (Request $req, Unit $unit) {
+        $query = \App\Models\BonPengeluaran::with([
+                'items.item',
+                'items.fifoLayers',
+                'warehouse',
+                'creator',
+            ])
+            ->where('unit_code', $unit->unit_code)
+            ->where('status', 'issued')
+            ->orderBy('issue_date', 'asc');
+        if ($req->date_from) $query->whereDate('issue_date', '>=', $req->date_from);
+        if ($req->date_to)   $query->whereDate('issue_date', '<=', $req->date_to);
+        $bons = $query->get();
+
+        // Hitung summary
+        $grandTotal = 0;
+        $totalItems = 0;
+        $totalQty   = 0;
+        foreach ($bons as $bon) {
+            foreach ($bon->items as $item) {
+                $totalItems++;
+                $layers = $item->fifoLayers ?? collect();
+                if ($layers->isNotEmpty()) {
+                    $totalQty   += $layers->sum(fn($l) => (float) $l->qty);
+                    $grandTotal += $layers->sum(fn($l) => (float) $l->nilai);
+                } else {
+                    $harga = (float) $item->fifo_price > 0
+                        ? (float) $item->fifo_price
+                        : (float) $item->harga_satuan;
+                    $totalQty   += (float) $item->qty;
+                    $grandTotal += $harga * (float) $item->qty;
+                }
+            }
+        }
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.parts-history', [
+            'unit'       => $unit,
+            'bons'       => $bons,
+            'dateFrom'   => $req->date_from,
+            'dateTo'     => $req->date_to,
+            'grandTotal' => $grandTotal,
+            'totalItems' => $totalItems,
+            'totalQty'   => number_format($totalQty, 2, ',', '.'),
+        ])->setPaper('a4', 'portrait');
+
+        $filename = 'riwayat-part-' . $unit->unit_code . '-' . now()->format('Ymd') . '.pdf';
+        return $pdf->download($filename);
+    });
     Route::post('/units', function (Request $req) {
         $v = $req->validate(['unit_code' => 'required|unique:units', 'type_unit' => 'required', 'brand' => 'nullable|string', 'warehouse_id' => 'nullable|exists:warehouses,id', 'status' => 'nullable|in:active,standby,maintenance,retired']);
         $unit = Unit::create($v);
@@ -280,11 +329,20 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
         return response()->json(['success' => true, 'data' => $employee]);
     });
 
-    // Reports
-    Route::get('/reports/stock',        [ReportController::class, 'stockReport']);
-    Route::get('/reports/movements',    [ReportController::class, 'movementReport']);
-    Route::get('/reports/pengeluaran',  [ReportController::class, 'pengeluaranReport']);
-    Route::get('/reports/export-pdf',   [ReportController::class, 'exportPdf']);
+    // ═══════════════════════════════════════════════════════════════════════
+    // REPORTS
+    // ═══════════════════════════════════════════════════════════════════════
+    Route::prefix('reports')->group(function () {
+        // Inventori
+        Route::get('/stock',          [ReportController::class, 'stockReport']);
+        Route::get('/movements',      [ReportController::class, 'movementReport']);
+        Route::get('/pengeluaran',    [ReportController::class, 'pengeluaranReport']);
+        Route::get('/export-pdf',     [ReportController::class, 'exportPdf']);      // stock PDF
+
+        // Pembelian
+        Route::get('/purchase',       [ReportController::class, 'purchaseReport']);
+        Route::get('/purchase-pdf',   [ReportController::class, 'purchasePdf']);
+    });
 
     // Admin: Users & Roles
     Route::middleware('role:superuser')->group(function () {
@@ -873,5 +931,19 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
             }
         });
         return response()->json(['success' => true, 'dry_run' => $dryRun, 'updated' => count($results), 'results' => $results, 'message' => $dryRun ? 'Dry run selesai. Kirim dry_run=false untuk apply.' : 'Recalculate selesai.']);
+    });
+
+    // ── Price Intelligence ────────────────────────────────────────────────────
+    Route::prefix('price-intelligence')->group(function () {
+        Route::get('/dashboard',             [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'dashboard']);
+        Route::get('/trend',                 [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'trend']);
+        Route::get('/supplier-comparison',   [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'supplierComparison']);
+        Route::get('/budget',                [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'budget']);
+        Route::get('/history',               [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'history']);
+        Route::get('/anomalies',             [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'anomalies']);
+        Route::post('/anomalies/{id}/read',  [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'markRead']);
+        Route::post('/anomalies/read-all',   [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'markAllRead']);
+        Route::get('/settings',              [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'getSettings']);
+        Route::put('/settings',              [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'updateSettings']);
     });
 });

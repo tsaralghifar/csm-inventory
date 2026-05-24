@@ -67,7 +67,7 @@ class SendDailyPriceDigest implements ShouldQueue
         if (empty($changes) && empty($anomalies)) return;
 
         // Kirim ke semua Purchasing
-        User::role('Purchasing')->get()->each(function ($user) use ($changes, $anomalies, $budget) {
+        User::role('purchasing')->get()->each(function ($user) use ($changes, $anomalies, $budget) {
             $user->notify(new PriceDigestNotification($changes, $anomalies, $budget));
         });
     }
@@ -79,8 +79,8 @@ class SendDailyPriceDigest implements ShouldQueue
         $thisMonthTotal = (float) DB::table('surat_jalan_items')
             ->join('surat_jalan', 'surat_jalan.id', '=', 'surat_jalan_items.surat_jalan_id')
             ->where('surat_jalan.status', 'received')
-            ->whereYear('surat_jalan.received_at', now()->year)
-            ->whereMonth('surat_jalan.received_at', now()->month)
+            ->whereYear('surat_jalan.received_date', now()->year)
+            ->whereMonth('surat_jalan.received_date', now()->month)
             ->sum(DB::raw('surat_jalan_items.qty_received * surat_jalan_items.harga_satuan'));
 
         $prevTotals = [];
@@ -89,8 +89,8 @@ class SendDailyPriceDigest implements ShouldQueue
             $total = (float) DB::table('surat_jalan_items')
                 ->join('surat_jalan', 'surat_jalan.id', '=', 'surat_jalan_items.surat_jalan_id')
                 ->where('surat_jalan.status', 'received')
-                ->whereYear('surat_jalan.received_at', $date->year)
-                ->whereMonth('surat_jalan.received_at', $date->month)
+                ->whereYear('surat_jalan.received_date', $date->year)
+                ->whereMonth('surat_jalan.received_date', $date->month)
                 ->sum(DB::raw('surat_jalan_items.qty_received * surat_jalan_items.harga_satuan'));
             if ($total > 0) $prevTotals[] = $total;
         }

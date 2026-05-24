@@ -2,22 +2,29 @@
 
 namespace App\Services;
 
+use App\Models\BonPengeluaran;
 use App\Models\ItemStock;
+use App\Models\PurchaseOrder;
 use App\Models\StockLayer;
 use App\Models\StockMovement;
+use App\Models\Supplier;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 
 class ReportService
 {
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  STOK
+    // ═══════════════════════════════════════════════════════════════════════════
+
     /**
      * Laporan stok per item.
-     * Harga = weighted average dari FIFO layers yang masih ada.
-     * Fallback ke avg_price ItemStock jika belum ada layer.
+     * Harga dihitung dari weighted-average FIFO layers yang masih aktif.
      */
     public function stockReport(
-        ?int $warehouseId,
-        ?int $categoryId = null,
-        ?string $filter = null,
+        ?int    $warehouseId,
+        ?int    $categoryId = null,
+        ?string $filter     = null,
     ): array {
         $data = $warehouseId
             ? $this->stockReportSingleWarehouse($warehouseId, $categoryId, $filter)
@@ -40,17 +47,21 @@ class ReportService
         return compact('data', 'summary');
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  MUTASI
+    // ═══════════════════════════════════════════════════════════════════════════
+
     /**
      * Laporan mutasi stok dengan filter opsional.
      */
     public function movementReport(
-        ?int $warehouseId,
+        ?int    $warehouseId,
         ?string $type,
         ?string $dateFrom,
         ?string $dateTo,
-        ?int $itemId,
-        int $perPage = 50,
-    ) {
+        ?int    $itemId,
+        int     $perPage = 50,
+    ): LengthAwarePaginator {
         $query = StockMovement::with(['item.category', 'fromWarehouse', 'toWarehouse', 'creator'])
             ->orderBy('movement_date', 'desc');
 
@@ -68,14 +79,20 @@ class ReportService
         return $query->paginate($perPage);
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  PENGELUARAN
+    // ═══════════════════════════════════════════════════════════════════════════
+
     /**
      * Laporan pengeluaran barang per gudang dalam rentang tanggal.
-     * Data diambil dari BonPengeluaran yang sudah issued, dengan detail
-     * per layer FIFO jika tersedia.
+     * Detail per FIFO layer jika tersedia.
      */
-    public function pengeluaranReport(int $warehouseId, string $dateFrom, string $dateTo): array
-    {
-        $bons = \App\Models\BonPengeluaran::with([
+    public function pengeluaranReport(
+        int    $warehouseId,
+        string $dateFrom,
+        string $dateTo,
+    ): array {
+        $bons = BonPengeluaran::with([
                 'items.item.category',
                 'items.fifoLayers',
             ])
@@ -86,7 +103,7 @@ class ReportService
             ->orderBy('bon_number')
             ->get();
 
-        $rows    = collect();
+        $rows       = collect();
         $totalQty   = 0;
         $totalValue = 0;
 
@@ -95,21 +112,9 @@ class ReportService
                 $fifoLayers = $bonItem->fifoLayers;
 
                 if ($fifoLayers->isNotEmpty()) {
-                    // Ada detail per layer — pecah per batch
                     foreach ($fifoLayers as $layer) {
                         $nilai = (float) $layer->nilai;
-                        $rows->push([
-                            'bon_number'    => $bon->bon_number,
-                            'bon_id'        => $bon->id,
-                            'issue_date'    => $bon->issue_date,
-                            'item'          => $bonItem->item,
-                            'nama_barang'   => $bonItem->nama_barang,
-                            'unit_code'     => $bon->unit_code,
-                            'unit_type'     => $bon->unit_type,
-                            'hm_km'         => $bon->hm_km,
-                            'mechanic'      => $bon->mechanic,
-                            'site_name'     => $bon->site_name,
-                            'satuan'        => $bonItem->satuan,
+                        $rows->push($this->buildPengeluaranRow($bon, $bonItem, [
                             'qty'           => (float) $layer->qty,
                             'harga_satuan'  => (float) $layer->harga_satuan,
                             'nilai'         => $nilai,
@@ -119,28 +124,16 @@ class ReportService
                             'source_type'   => $layer->source_type,
                             'reference_po'  => $layer->reference_no,
                             'total_qty_item'=> (float) $bonItem->qty,
-                        ]);
+                        ]));
                         $totalQty   += (float) $layer->qty;
                         $totalValue += $nilai;
                     }
                 } else {
-                    // Tidak ada layer detail — tampilkan 1 baris dengan fifo_price
                     $harga = (float) $bonItem->fifo_price > 0
                         ? (float) $bonItem->fifo_price
                         : (float) $bonItem->harga_satuan;
                     $nilai = $harga * (float) $bonItem->qty;
-                    $rows->push([
-                        'bon_number'    => $bon->bon_number,
-                        'bon_id'        => $bon->id,
-                        'issue_date'    => $bon->issue_date,
-                        'item'          => $bonItem->item,
-                        'nama_barang'   => $bonItem->nama_barang,
-                        'unit_code'     => $bon->unit_code,
-                        'unit_type'     => $bon->unit_type,
-                        'hm_km'         => $bon->hm_km,
-                        'mechanic'      => $bon->mechanic,
-                        'site_name'     => $bon->site_name,
-                        'satuan'        => $bonItem->satuan,
+                    $rows->push($this->buildPengeluaranRow($bon, $bonItem, [
                         'qty'           => (float) $bonItem->qty,
                         'harga_satuan'  => $harga,
                         'nilai'         => $nilai,
@@ -150,7 +143,7 @@ class ReportService
                         'source_type'   => null,
                         'reference_po'  => null,
                         'total_qty_item'=> (float) $bonItem->qty,
-                    ]);
+                    ]));
                     $totalQty   += (float) $bonItem->qty;
                     $totalValue += $nilai;
                 }
@@ -167,10 +160,129 @@ class ReportService
         return compact('data', 'summary');
     }
 
-    // ─── Private helpers ──────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  PEMBELIAN
+    // ═══════════════════════════════════════════════════════════════════════════
 
     /**
-     * Hitung harga FIFO weighted average dari layer aktif untuk satu item di satu gudang.
+     * Laporan pembelian barang dari Purchase Order.
+     * Mendukung filter: tanggal, payment_type (cash/kredit), status PO, supplier.
+     */
+    public function purchaseReport(
+        ?string $dateFrom    = null,
+        ?string $dateTo      = null,
+        ?string $paymentType = null,
+        ?string $status      = null,
+        ?int    $supplierId  = null,
+    ): array {
+        $query = PurchaseOrder::with([
+                'items.item.category',
+                'warehouse',
+                'supplier',
+                'creator',
+                'supplierInvoices',
+            ])
+            ->withCount('items');
+
+        if ($dateFrom) $query->whereDate('created_at', '>=', $dateFrom);
+        if ($dateTo)   $query->whereDate('created_at', '<=', $dateTo);
+
+        if ($paymentType && in_array($paymentType, ['cash', 'kredit'], true)) {
+            $query->where('payment_type', $paymentType);
+        }
+        if ($status)     $query->where('status', $status);
+        if ($supplierId) $query->where('supplier_id', $supplierId);
+
+        $orders = $query->orderByDesc('created_at')->get();
+
+        // ── Summary ──────────────────────────────────────────────────────────
+
+        $cashOrders   = $orders->where('payment_type', 'cash');
+        $kreditOrders = $orders->where('payment_type', 'kredit');
+
+        $summary = [
+            'total_po'     => $orders->count(),
+            'total_nilai'  => $orders->sum(fn($o) => (float) $o->grand_total),
+            'total_cash'   => $cashOrders->count(),
+            'nilai_cash'   => $cashOrders->sum(fn($o) => (float) $o->grand_total),
+            'total_kredit' => $kreditOrders->count(),
+            'nilai_kredit' => $kreditOrders->sum(fn($o) => (float) $o->grand_total),
+            'total_ppn'    => $orders->sum(fn($o) => (float) $o->ppn_amount),
+            'total_diskon' => $orders->sum(fn($o) => (float) $o->diskon_amount),
+        ];
+
+        // ── Serialize ─────────────────────────────────────────────────────────
+
+        $today = now()->toDateString();
+
+        $data = $orders->map(fn($po) => [
+            'id'                => $po->id,
+            'po_number'         => $po->po_number,
+            'vendor_name'       => $po->vendor_name,
+            'vendor_contact'    => $po->vendor_contact,
+            'supplier'          => $po->supplier
+                ? ['id' => $po->supplier->id, 'name' => $po->supplier->name]
+                : null,
+            'warehouse'         => $po->warehouse
+                ? ['id' => $po->warehouse->id, 'name' => $po->warehouse->name]
+                : null,
+            'created_at'        => $po->created_at?->toDateTimeString(),
+            'expected_date'     => $po->expected_date?->toDateString(),
+            'status'            => $po->status,
+            'payment_type'      => $po->payment_type,
+            'payment_term_days' => $po->payment_term_days,
+            'payment_due_date'  => $po->payment_due_date?->toDateString(),
+            'total_amount'      => (float) $po->total_amount,
+            'diskon_persen'     => (float) $po->diskon_persen,
+            'diskon_amount'     => (float) $po->diskon_amount,
+            'ppn_percent'       => (float) $po->ppn_percent,
+            'ppn_amount'        => (float) $po->ppn_amount,
+            'grand_total'       => (float) $po->grand_total,
+            'notes'             => $po->notes,
+            'items_count'       => $po->items_count,
+            'items'             => $po->items->map(fn($item) => [
+                'id'            => $item->id,
+                'part_number'   => $item->part_number,
+                'nama_barang'   => $item->nama_barang,
+                'kode_unit'     => $item->kode_unit,
+                'tipe_unit'     => $item->tipe_unit,
+                'qty'           => (float) $item->qty,
+                'qty_received'  => (float) $item->qty_received,
+                'satuan'        => $item->satuan,
+                'harga_satuan'  => (float) $item->harga_satuan,
+                'diskon_persen' => (float) $item->diskon_persen,
+                'diskon_amount' => (float) $item->diskon_amount,
+                'total_harga'   => (float) $item->total_harga,
+                'keterangan'    => $item->keterangan,
+                'item'          => $item->item ? [
+                    'id'       => $item->item->id,
+                    'name'     => $item->item->name,
+                    'category' => $item->item->category?->name,
+                ] : null,
+            ])->values(),
+            'supplier_invoices' => $po->supplierInvoices->map(fn($inv) => [
+                'id'               => $inv->id,
+                'invoice_number'   => $inv->invoice_number,
+                'invoice_date'     => $inv->invoice_date?->toDateString(),
+                'due_date'         => $inv->due_date?->toDateString(),
+                'total_amount'     => (float) $inv->total_amount,
+                'paid_amount'      => (float) $inv->paid_amount,
+                'remaining_amount' => (float) $inv->remaining_amount,
+                'status'           => $inv->status,
+                'is_overdue'       => $inv->due_date?->toDateString() < $today
+                                        && $inv->status !== 'paid',
+            ])->values(),
+        ])->values();
+
+        return compact('data', 'summary');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  PRIVATE HELPERS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Hitung harga FIFO weighted-average dari layer aktif untuk 1 item / 1 gudang.
      */
     private function getFifoPriceForStock(int $itemId, int $warehouseId): float
     {
@@ -246,9 +358,7 @@ class ReportService
             $query->whereHas('item', fn($q) => $q->where('category_id', $categoryId));
         }
 
-        $allStocks = $query->get();
-
-        $grouped = $allStocks->groupBy('item_id')->map(function ($rows) {
+        $grouped = $query->get()->groupBy('item_id')->map(function ($rows) {
             $first    = $rows->first();
             $totalQty = $rows->sum(fn($s) => (float) $s->qty);
             $gudang   = $rows->filter(fn($s) => $s->qty != 0)
@@ -258,7 +368,6 @@ class ReportService
                     'qty'  => (float) $s->qty,
                 ])->values();
 
-            // Ambil semua layer aktif untuk item ini lintas gudang
             $allLayers = StockLayer::where('item_id', $first->item_id)
                 ->available()
                 ->fifo()
@@ -282,17 +391,15 @@ class ReportService
                 $fifoPrice = $totalLayerQty > 0 ? round($totalLayerValue / $totalLayerQty, 2) : 0.0;
             }
 
-            $avgPrice = $fifoPrice > 0
-                ? $fifoPrice
-                : (float) $rows->avg(fn($s) => (float) $s->avg_price);
-
             return [
                 'id'         => $first->id,
                 'item_id'    => $first->item_id,
                 'item'       => $first->item,
                 'qty'        => $totalQty,
                 'fifo_price' => $fifoPrice,
-                'avg_price'  => $avgPrice,
+                'avg_price'  => $fifoPrice > 0
+                    ? $fifoPrice
+                    : (float) $rows->avg(fn($s) => (float) $s->avg_price),
                 'layers'     => $allLayers->values(),
                 'gudang'     => $gudang,
             ];
@@ -310,5 +417,28 @@ class ReportService
         }
 
         return $grouped->sortBy(fn($s) => $s['item']->name)->values();
+    }
+
+    /**
+     * Builder baris pengeluaran — menghindari duplikasi properti bon & bonItem.
+     */
+    private function buildPengeluaranRow(
+        BonPengeluaran $bon,
+        mixed          $bonItem,
+        array          $extra,
+    ): array {
+        return array_merge([
+            'bon_number'  => $bon->bon_number,
+            'bon_id'      => $bon->id,
+            'issue_date'  => $bon->issue_date,
+            'item'        => $bonItem->item,
+            'nama_barang' => $bonItem->nama_barang,
+            'unit_code'   => $bon->unit_code,
+            'unit_type'   => $bon->unit_type,
+            'hm_km'       => $bon->hm_km,
+            'mechanic'    => $bon->mechanic,
+            'site_name'   => $bon->site_name,
+            'satuan'      => $bonItem->satuan,
+        ], $extra);
     }
 }

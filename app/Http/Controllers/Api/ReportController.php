@@ -3,17 +3,23 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Supplier;
+use App\Models\Warehouse;
 use App\Services\ReportService;
 use Barryvdh\DomPDF\Facade\Pdf;
-use App\Models\ItemStock;
-use App\Models\StockMovement;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ReportController extends Controller
 {
     public function __construct(protected ReportService $service) {}
 
-    public function stockReport(Request $request)
+    // ─── Stok ─────────────────────────────────────────────────────────────────
+
+    // GET /reports/stock
+    public function stockReport(Request $request): JsonResponse
     {
         $request->validate(['warehouse_id' => 'nullable|exists:warehouses,id']);
 
@@ -30,7 +36,33 @@ class ReportController extends Controller
         ]);
     }
 
-    public function movementReport(Request $request)
+    // GET /reports/export-pdf   (stock PDF — sudah ada, diperbaiki)
+    public function exportPdf(Request $request): Response|BinaryFileResponse
+    {
+        $warehouseId = $request->warehouse_id ? (int) $request->warehouse_id : null;
+
+        $result = $this->service->stockReport(
+            warehouseId: $warehouseId,
+            categoryId:  $request->category_id ? (int) $request->category_id : null,
+            filter:      $request->filter,
+        );
+
+        $warehouseName = $request->warehouse_name
+            ?? ($warehouseId ? Warehouse::find($warehouseId)?->name ?? 'Semua Gudang' : 'Semua Gudang');
+
+        $pdf = Pdf::loadView('pdf.stock', [
+            'data'    => $result['data'],
+            'summary' => $result['summary'],
+            'request' => array_merge($request->all(), ['warehouse_name' => $warehouseName]),
+        ])->setPaper('a4', 'landscape');
+
+        return $pdf->download('Laporan_Stok_' . now()->format('Ymd') . '.pdf');
+    }
+
+    // ─── Mutasi ───────────────────────────────────────────────────────────────
+
+    // GET /reports/movements
+    public function movementReport(Request $request): JsonResponse
     {
         $movements = $this->service->movementReport(
             warehouseId: $request->warehouse_id ? (int) $request->warehouse_id : null,
@@ -52,7 +84,10 @@ class ReportController extends Controller
         ]);
     }
 
-    public function pengeluaranReport(Request $request)
+    // ─── Pengeluaran ──────────────────────────────────────────────────────────
+
+    // GET /reports/pengeluaran
+    public function pengeluaranReport(Request $request): JsonResponse
     {
         $request->validate([
             'warehouse_id' => 'required|exists:warehouses,id',
@@ -73,30 +108,48 @@ class ReportController extends Controller
         ]);
     }
 
-    public function exportPdf(Request $request)
+    // ─── Pembelian ────────────────────────────────────────────────────────────
+
+    // GET /reports/purchase
+    public function purchaseReport(Request $request): JsonResponse
     {
-        $type        = $request->type ?? 'stock';
-        $warehouseId = $request->warehouse_id;
+        $result = $this->service->purchaseReport(
+            dateFrom:    $request->date_from,
+            dateTo:      $request->date_to,
+            paymentType: $request->payment_type,
+            status:      $request->status,
+            supplierId:  $request->supplier_id ? (int) $request->supplier_id : null,
+        );
 
-        $data = match ($type) {
-            'stock'    => ItemStock::with(['item.category', 'warehouse'])
-                ->where('warehouse_id', $warehouseId)
-                ->get(),
-            'movement' => StockMovement::with(['item', 'fromWarehouse', 'toWarehouse'])
-                ->when($warehouseId, fn($q) => $q->where(
-                    fn($q2) => $q2->where('from_warehouse_id', $warehouseId)->orWhere('to_warehouse_id', $warehouseId)
-                ))
-                ->whereBetween('movement_date', [
-                    $request->date_from ?? now()->startOfMonth(),
-                    $request->date_to   ?? now(),
-                ])
-                ->orderBy('movement_date')
-                ->get(),
-            default    => collect(),
-        };
+        return response()->json([
+            'success' => true,
+            'data'    => $result['data'],
+            'summary' => $result['summary'],
+        ]);
+    }
 
-        $pdf = Pdf::loadView("reports.{$type}", ['data' => $data, 'request' => $request->all()]);
+    // GET /reports/purchase-pdf
+    public function purchasePdf(Request $request): Response|BinaryFileResponse
+    {
+        $result = $this->service->purchaseReport(
+            dateFrom:    $request->date_from,
+            dateTo:      $request->date_to,
+            paymentType: $request->payment_type,
+            status:      $request->status,
+            supplierId:  $request->supplier_id ? (int) $request->supplier_id : null,
+        );
 
-        return $pdf->download("laporan_{$type}_" . now()->format('Ymd') . '.pdf');
+        $supplierName = $request->supplier_name
+            ?? ($request->supplier_id
+                ? Supplier::find($request->supplier_id)?->name ?? 'Semua Supplier'
+                : 'Semua Supplier');
+
+        $pdf = Pdf::loadView('pdf.purchase', [
+            'data'    => $result['data'],
+            'summary' => $result['summary'],
+            'request' => array_merge($request->all(), ['supplier_name' => $supplierName]),
+        ])->setPaper('a4', 'landscape');
+
+        return $pdf->download('Laporan_Pembelian_' . now()->format('Ymd') . '.pdf');
     }
 }

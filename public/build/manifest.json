@@ -39,7 +39,7 @@
     "isEntry": true
   },
   "resources/js/app.js": {
-    "file": "assets/app-B-82ZifE.js",
+    "file": "assets/app-BEGHQEwD.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true,
@@ -70,11 +70,13 @@
       "resources/js/pages/laporan/LaporanStok.vue",
       "resources/js/pages/laporan/LaporanPengeluaran.vue",
       "resources/js/pages/laporan/LaporanMutasi.vue",
+      "resources/js/pages/laporan/LaporanPembelian.vue",
       "resources/js/pages/laporan/LaporanAccounting.vue",
       "resources/js/pages/laporan/LaporanCashFlow.vue",
       "resources/js/pages/laporan/LaporanHutangSupplier.vue",
       "resources/js/pages/laporan/LaporanBeban.vue",
       "resources/js/pages/laporan/LaporanPayroll.vue",
+      "resources/js/pages/analitik/AnalitikHarga.vue",
       "resources/js/pages/admin/Users.vue",
       "resources/js/pages/admin/Roles.vue",
       "resources/js/pages/admin/AuditLog.vue",
@@ -94,7 +96,7 @@
     ]
   },
   "resources/js/components/Layout.vue": {
-    "file": "assets/Layout-DWvMPSn3.js",
+    "file": "assets/Layout-CsMNW6Ji.js",
     "name": "Layout",
     "src": "resources/js/components/Layout.vue",
     "isDynamicEntry": true,
@@ -107,7 +109,7 @@
     ]
   },
   "resources/js/pages/accounting/InvoiceSupplier.vue": {
-    "file": "assets/InvoiceSupplier-Ckv-_Jvj.js",
+    "file": "assets/InvoiceSupplier-Uo1A3aTa.js",
     "name": "InvoiceSupplier",
     "src": "resources/js/pages/accounting/InvoiceSupplier.vue",
     "isDynamicEntry": true,
@@ -118,7 +120,7 @@
     ]
   },
   "resources/js/pages/accounting/Jurnal.vue": {
-    "file": "assets/Jurnal-BqYTSPWq.js",
+    "file": "assets/Jurnal-WONFWoTH.js",
     "name": "Jurnal",
     "src": "resources/js/pages/accounting/Jurnal.vue",
     "isDynamicEntry": true,
@@ -129,7 +131,7 @@
     ]
   },
   "resources/js/pages/accounting/KasBesar.vue": {
-    "file": "assets/KasBesar-Cca6DKiS.js",
+    "file": "assets/KasBesar-inGr62q7.js",
     "name": "KasBesar",
     "src": "resources/js/pages/accounting/KasBesar.vue",
     "isDynamicEntry": true,
@@ -140,7 +142,7 @@
     ]
   },
   "resources/js/pages/accounting/KasKecil.vue": {
-    "file": "assets/KasKecil-C-bqWIxl.js",
+    "file": "assets/KasKecil-e_E4ZaKy.js",
     "name": "KasKecil",
     "src": "resources/js/pages/accounting/KasKecil.vue",
     "isDynamicEntry": true,
@@ -151,7 +153,7 @@
     ]
   },
   "resources/js/pages/accounting/PembayaranSupplier.vue": {
-    "file": "assets/PembayaranSupplier-9GFOw3Ik.js",
+    "file": "assets/PembayaranSupplier-B-g9LUxW.js",
     "name": "PembayaranSupplier",
     "src": "resources/js/pages/accounting/PembayaranSupplier.vue",
     "isDynamicEntry": true,
@@ -162,7 +164,7 @@
     ]
   },
   "resources/js/pages/accounting/Supplier.vue": {
-    "file": "assets/Supplier-BZkwE9v2.js",
+    "file": "assets/Supplier-CNxUHnAJ.js",
     "name": "Supplier",
     "src": "resources/js/pages/accounting/Supplier.vue",
     "isDynamicEntry": true,
@@ -173,7 +175,7 @@
     ]
   },
   "resources/js/pages/admin/AuditLog.vue": {
-    "file": "assets/AuditLog-CXYNm1z_.js",
+    "file": "assets/AuditLog-BmxMv21O.js",
     "name": "AuditLog",
     "src": "resources/js/pages/admin/AuditLog.vue",
     "isDynamicEntry": true,
@@ -186,7 +188,7 @@
     ]
   },
   "resources/js/pages/admin/Roles.vue": {
-    "file": "assets/Roles-CN5P4tyY.js",
+    "file": "assets/Roles-CMkHrJAP.js",
     "name": "Roles",
     "src": "resources/js/pages/admin/Roles.vue",
     "isDynamicEntry": true,
@@ -195,7 +197,7 @@
     ]
   },
   "resources/js/pages/admin/Users.vue": {
-    "file": "assets/Users-BovB6kqv.js",
+    "file": "assets/Users-B4Nd2RzJ.js",
     "name": "Users",
     "src": "resources/js/pages/admin/Users.vue",
     "isDynamicEntry": true,
@@ -206,8 +208,17 @@
       "__commonjsHelpers-Cpj98o6Y.js"
     ]
   },
+  "resources/js/pages/analitik/AnalitikHarga.vue": {
+    "file": "assets/AnalitikHarga-D_pDZnHS.js",
+    "name": "AnalitikHarga",
+    "src": "resources/js/pages/analitik/AnalitikHarga.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ]
+  },
   "resources/js/pages/apd/APD.vue": {
-    "file": "assets/APD-CIR3KpSL.js",
+    "file": "assets/APD-C55lGIWK.js",
     "name": "APD",
     "src": "resources/js/pages/apd/APD.vue",
     "isDynamicEntry": true,
@@ -219,7 +230,7 @@
     ]
   },
   "resources/js/pages/auth/Login.vue": {
-    "file": "assets/Login-ClAtY59h.js",
+    "file": "assets/Login-BhFhHXSn.js",
     "name": "Login",
     "src": "resources/js/pages/auth/Login.vue",
     "isDynamicEntry": true,
@@ -228,7 +239,7 @@
     ]
   },
   "resources/js/pages/auth/Profile.vue": {
-    "file": "assets/Profile-DEfA_Md5.js",
+    "file": "assets/Profile-DJvlTmHk.js",
     "name": "Profile",
     "src": "resources/js/pages/auth/Profile.vue",
     "isDynamicEntry": true,
@@ -237,7 +248,7 @@
     ]
   },
   "resources/js/pages/bbm/BBM.vue": {
-    "file": "assets/BBM-CyFfme4F.js",
+    "file": "assets/BBM-DWgD0t-d.js",
     "name": "BBM",
     "src": "resources/js/pages/bbm/BBM.vue",
     "isDynamicEntry": true,
@@ -250,7 +261,7 @@
     ]
   },
   "resources/js/pages/dashboard/Dashboard.vue": {
-    "file": "assets/Dashboard-aiPoOEvx.js",
+    "file": "assets/Dashboard-DYPzqQr9.js",
     "name": "Dashboard",
     "src": "resources/js/pages/dashboard/Dashboard.vue",
     "isDynamicEntry": true,
@@ -261,7 +272,7 @@
     ]
   },
   "resources/js/pages/laporan/LaporanAccounting.vue": {
-    "file": "assets/LaporanAccounting-CwKrAxR0.js",
+    "file": "assets/LaporanAccounting-By_19ZhF.js",
     "name": "LaporanAccounting",
     "src": "resources/js/pages/laporan/LaporanAccounting.vue",
     "isDynamicEntry": true,
@@ -270,7 +281,7 @@
     ]
   },
   "resources/js/pages/laporan/LaporanBeban.vue": {
-    "file": "assets/LaporanBeban-C5FEx5Vk.js",
+    "file": "assets/LaporanBeban-BBIGAVaG.js",
     "name": "LaporanBeban",
     "src": "resources/js/pages/laporan/LaporanBeban.vue",
     "isDynamicEntry": true,
@@ -279,7 +290,7 @@
     ]
   },
   "resources/js/pages/laporan/LaporanCashFlow.vue": {
-    "file": "assets/LaporanCashFlow-8jS36_s8.js",
+    "file": "assets/LaporanCashFlow-DDGicBjn.js",
     "name": "LaporanCashFlow",
     "src": "resources/js/pages/laporan/LaporanCashFlow.vue",
     "isDynamicEntry": true,
@@ -288,7 +299,7 @@
     ]
   },
   "resources/js/pages/laporan/LaporanHutangSupplier.vue": {
-    "file": "assets/LaporanHutangSupplier-BTzOvJl_.js",
+    "file": "assets/LaporanHutangSupplier-DuwJb0_q.js",
     "name": "LaporanHutangSupplier",
     "src": "resources/js/pages/laporan/LaporanHutangSupplier.vue",
     "isDynamicEntry": true,
@@ -297,7 +308,7 @@
     ]
   },
   "resources/js/pages/laporan/LaporanMutasi.vue": {
-    "file": "assets/LaporanMutasi-CZPbPoq4.js",
+    "file": "assets/LaporanMutasi-B61m9CK_.js",
     "name": "LaporanMutasi",
     "src": "resources/js/pages/laporan/LaporanMutasi.vue",
     "isDynamicEntry": true,
@@ -308,7 +319,7 @@
     ]
   },
   "resources/js/pages/laporan/LaporanPayroll.vue": {
-    "file": "assets/LaporanPayroll-1cUz-6Yh.js",
+    "file": "assets/LaporanPayroll-BFUX4C2w.js",
     "name": "LaporanPayroll",
     "src": "resources/js/pages/laporan/LaporanPayroll.vue",
     "isDynamicEntry": true,
@@ -316,8 +327,17 @@
       "resources/js/app.js"
     ]
   },
+  "resources/js/pages/laporan/LaporanPembelian.vue": {
+    "file": "assets/LaporanPembelian-C3HnTalV.js",
+    "name": "LaporanPembelian",
+    "src": "resources/js/pages/laporan/LaporanPembelian.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ]
+  },
   "resources/js/pages/laporan/LaporanPengeluaran.vue": {
-    "file": "assets/LaporanPengeluaran-Bv0RD-De.js",
+    "file": "assets/LaporanPengeluaran-CPDinhbK.js",
     "name": "LaporanPengeluaran",
     "src": "resources/js/pages/laporan/LaporanPengeluaran.vue",
     "isDynamicEntry": true,
@@ -328,7 +348,7 @@
     ]
   },
   "resources/js/pages/laporan/LaporanStok.vue": {
-    "file": "assets/LaporanStok-Cx1KROkK.js",
+    "file": "assets/LaporanStok-DhEo6--W.js",
     "name": "LaporanStok",
     "src": "resources/js/pages/laporan/LaporanStok.vue",
     "isDynamicEntry": true,
@@ -337,7 +357,7 @@
     ]
   },
   "resources/js/pages/master/Barang.vue": {
-    "file": "assets/Barang-DJWaoeSZ.js",
+    "file": "assets/Barang-BBMaxJ6A.js",
     "name": "Barang",
     "src": "resources/js/pages/master/Barang.vue",
     "isDynamicEntry": true,
@@ -349,7 +369,7 @@
     ]
   },
   "resources/js/pages/master/Gudang.vue": {
-    "file": "assets/Gudang-BzVSTr_s.js",
+    "file": "assets/Gudang-Cnr1K7gU.js",
     "name": "Gudang",
     "src": "resources/js/pages/master/Gudang.vue",
     "isDynamicEntry": true,
@@ -360,7 +380,7 @@
     ]
   },
   "resources/js/pages/master/Karyawan.vue": {
-    "file": "assets/Karyawan-BSaFgT5w.js",
+    "file": "assets/Karyawan-BjYxKTUP.js",
     "name": "Karyawan",
     "src": "resources/js/pages/master/Karyawan.vue",
     "isDynamicEntry": true,
@@ -371,7 +391,7 @@
     ]
   },
   "resources/js/pages/master/Kategori.vue": {
-    "file": "assets/Kategori-apPK5g5Q.js",
+    "file": "assets/Kategori-Zu51eF4w.js",
     "name": "Kategori",
     "src": "resources/js/pages/master/Kategori.vue",
     "isDynamicEntry": true,
@@ -382,7 +402,7 @@
     ]
   },
   "resources/js/pages/master/Unit.vue": {
-    "file": "assets/Unit-f4dUnbzl.js",
+    "file": "assets/Unit-DTrhqIX3.js",
     "name": "Unit",
     "src": "resources/js/pages/master/Unit.vue",
     "isDynamicEntry": true,
@@ -393,7 +413,7 @@
     ]
   },
   "resources/js/pages/mutasi/Mutasi.vue": {
-    "file": "assets/Mutasi-pUq1UrvV.js",
+    "file": "assets/Mutasi-BYJ5YA4J.js",
     "name": "Mutasi",
     "src": "resources/js/pages/mutasi/Mutasi.vue",
     "isDynamicEntry": true,
@@ -405,7 +425,7 @@
     ]
   },
   "resources/js/pages/payroll/KomponenGaji.vue": {
-    "file": "assets/KomponenGaji-CeBkygyH.js",
+    "file": "assets/KomponenGaji-adDfpirT.js",
     "name": "KomponenGaji",
     "src": "resources/js/pages/payroll/KomponenGaji.vue",
     "isDynamicEntry": true,
@@ -416,7 +436,7 @@
     ]
   },
   "resources/js/pages/payroll/Payroll.vue": {
-    "file": "assets/Payroll-Cx272aWv.js",
+    "file": "assets/Payroll--nYHmO4_.js",
     "name": "Payroll",
     "src": "resources/js/pages/payroll/Payroll.vue",
     "isDynamicEntry": true,
@@ -427,7 +447,7 @@
     ]
   },
   "resources/js/pages/payroll/PinjamanKaryawan.vue": {
-    "file": "assets/PinjamanKaryawan-D5rwncD_.js",
+    "file": "assets/PinjamanKaryawan-CzBTM-_y.js",
     "name": "PinjamanKaryawan",
     "src": "resources/js/pages/payroll/PinjamanKaryawan.vue",
     "isDynamicEntry": true,
@@ -438,7 +458,7 @@
     ]
   },
   "resources/js/pages/permintaan/DetailPermintaan.vue": {
-    "file": "assets/DetailPermintaan-BHxgIByb.js",
+    "file": "assets/DetailPermintaan-B3ZSuF4X.js",
     "name": "DetailPermintaan",
     "src": "resources/js/pages/permintaan/DetailPermintaan.vue",
     "isDynamicEntry": true,
@@ -449,7 +469,7 @@
     ]
   },
   "resources/js/pages/permintaan/PermintaanMaterial.vue": {
-    "file": "assets/PermintaanMaterial-CBCdzc8N.js",
+    "file": "assets/PermintaanMaterial-B1qY79se.js",
     "name": "PermintaanMaterial",
     "src": "resources/js/pages/permintaan/PermintaanMaterial.vue",
     "isDynamicEntry": true,
@@ -464,7 +484,7 @@
     ]
   },
   "resources/js/pages/purchasing/BonPengeluaran.vue": {
-    "file": "assets/BonPengeluaran-C02jJfNV.js",
+    "file": "assets/BonPengeluaran-DMRWYqR2.js",
     "name": "BonPengeluaran",
     "src": "resources/js/pages/purchasing/BonPengeluaran.vue",
     "isDynamicEntry": true,
@@ -475,7 +495,7 @@
     ]
   },
   "resources/js/pages/purchasing/PurchaseOrder.vue": {
-    "file": "assets/PurchaseOrder-Bpujv58D.js",
+    "file": "assets/PurchaseOrder-D95h41Ql.js",
     "name": "PurchaseOrder",
     "src": "resources/js/pages/purchasing/PurchaseOrder.vue",
     "isDynamicEntry": true,
@@ -484,7 +504,7 @@
     ]
   },
   "resources/js/pages/purchasing/ReturBarang.vue": {
-    "file": "assets/ReturBarang-ONR7N5zI.js",
+    "file": "assets/ReturBarang-CSrwCK0q.js",
     "name": "ReturBarang",
     "src": "resources/js/pages/purchasing/ReturBarang.vue",
     "isDynamicEntry": true,
@@ -495,7 +515,7 @@
     ]
   },
   "resources/js/pages/purchasing/SuratJalan.vue": {
-    "file": "assets/SuratJalan-9wVrbfq3.js",
+    "file": "assets/SuratJalan-DIU9mngV.js",
     "name": "SuratJalan",
     "src": "resources/js/pages/purchasing/SuratJalan.vue",
     "isDynamicEntry": true,
@@ -506,7 +526,7 @@
     ]
   },
   "resources/js/pages/stok/ImportSaldoAwal.vue": {
-    "file": "assets/ImportSaldoAwal-BJvJTisg.js",
+    "file": "assets/ImportSaldoAwal-CfUJ1JIU.js",
     "name": "ImportSaldoAwal",
     "src": "resources/js/pages/stok/ImportSaldoAwal.vue",
     "isDynamicEntry": true,
@@ -516,7 +536,7 @@
     ]
   },
   "resources/js/pages/stok/StokHO.vue": {
-    "file": "assets/StokHO-D_TogH1J.js",
+    "file": "assets/StokHO-DO0VrJHr.js",
     "name": "StokHO",
     "src": "resources/js/pages/stok/StokHO.vue",
     "isDynamicEntry": true,
@@ -527,7 +547,7 @@
     ]
   },
   "resources/js/pages/stok/StokOpname.vue": {
-    "file": "assets/StokOpname-Bs_uRKew.js",
+    "file": "assets/StokOpname-D4pFaabB.js",
     "name": "StokOpname",
     "src": "resources/js/pages/stok/StokOpname.vue",
     "isDynamicEntry": true,
@@ -536,7 +556,7 @@
     ]
   },
   "resources/js/pages/stok/StokSite.vue": {
-    "file": "assets/StokSite-BZ7Ng_cR.js",
+    "file": "assets/StokSite-BHLjkqDO.js",
     "name": "StokSite",
     "src": "resources/js/pages/stok/StokSite.vue",
     "isDynamicEntry": true,
@@ -547,7 +567,7 @@
     ]
   },
   "resources/js/pages/transfer/DetailTransfer.vue": {
-    "file": "assets/DetailTransfer-CpCWvPOU.js",
+    "file": "assets/DetailTransfer-Dd0JaEM4.js",
     "name": "DetailTransfer",
     "src": "resources/js/pages/transfer/DetailTransfer.vue",
     "isDynamicEntry": true,
@@ -558,7 +578,7 @@
     ]
   },
   "resources/js/pages/transfer/TransferBarang.vue": {
-    "file": "assets/TransferBarang-Bkprruih.js",
+    "file": "assets/TransferBarang-BXHWZ3jd.js",
     "name": "TransferBarang",
     "src": "resources/js/pages/transfer/TransferBarang.vue",
     "isDynamicEntry": true,

@@ -119,7 +119,7 @@
     <div class="modal fade" id="unitHistoryModal" tabindex="-1">
       <div class="modal-dialog modal-xl">
         <div class="modal-content" v-if="selectedUnit">
-          <div class="modal-header">
+          <div class="modal-header d-flex align-items-center justify-content-between">
             <div>
               <h6 class="modal-title mb-0">
                 <i class="bi bi-clock-history text-info me-2"></i>
@@ -127,7 +127,14 @@
               </h6>
               <small class="text-muted">{{ selectedUnit.type_unit }} · {{ selectedUnit.brand }}</small>
             </div>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-sm btn-danger" @click="downloadPdf" :disabled="pdfLoading">
+                <span v-if="pdfLoading" class="csm-spinner me-1"></span>
+                <i v-else class="bi bi-file-earmark-pdf me-1"></i>
+                {{ pdfLoading ? 'Memproses...' : 'Export PDF' }}
+              </button>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
           </div>
           <div class="modal-body">
             <!-- Filter Kalender -->
@@ -325,6 +332,35 @@ function getHargaSatuan(item) {
   if (parseFloat(avgPrice) > 0) return parseFloat(avgPrice)
   // Prioritas 4: harga master barang
   return parseFloat(item.item?.price) || 0
+}
+
+const pdfLoading = ref(false)
+
+async function downloadPdf() {
+  if (!selectedUnit.value || pdfLoading.value) return
+  pdfLoading.value = true
+  try {
+    const params = {}
+    if (historyFilter.value.date_from) params.date_from = historyFilter.value.date_from
+    if (historyFilter.value.date_to)   params.date_to   = historyFilter.value.date_to
+
+    const res = await axios.get(`/units/${selectedUnit.value.id}/parts-history/pdf`, {
+      params,
+      responseType: 'blob',
+    })
+
+    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const url  = window.URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `riwayat-part-${selectedUnit.value.unit_code}-${new Date().toISOString().slice(0,10)}.pdf`
+    a.click()
+    window.URL.revokeObjectURL(url)
+  } catch (e) {
+    toast.error('Gagal mengunduh PDF')
+  } finally {
+    pdfLoading.value = false
+  }
 }
 
 function bonItemSubtotal(item) {

@@ -113,7 +113,7 @@ class PriceAlertService
      */
     public function notifyPurchasing(ItemPriceHistory $history): void
     {
-        $purchasingUsers = User::role('Purchasing')->get();
+        $purchasingUsers = User::role('purchasing')->get();
 
         foreach ($purchasingUsers as $user) {
             $user->notify(new PriceChangeNotification($history, 'price_change'));
@@ -128,11 +128,62 @@ class PriceAlertService
         array $settings,
         ?int $userId
     ): void {
-        // 1. Kenaikan berturut-turut
+        // 1. Lonjakan harga kritis (price_spike)
+        $this->detectPriceSpike($history, $settings, $userId);
+
+        // 2. Kenaikan berturut-turut
         $this->detectConsecutiveIncrease($history, $settings, $userId);
 
-        // 2. PO vs Tanda Terima (jika ada referensi PO)
+        // 3. PO vs Tanda Terima (jika ada referensi PO)
         $this->detectPoVsReceive($history, $settings, $userId);
+    }
+
+    /**
+     * Deteksi lonjakan harga kritis (up_high atau up_critical).
+     */
+    private function detectPriceSpike(
+        ItemPriceHistory $history,
+        array $settings,
+        ?int $userId
+    ): void {
+        // Hanya trigger untuk severity up_high atau up_critical
+        if (!in_array($history->severity, ['up_high', 'up_critical'])) return;
+
+        // Cek sudah ada anomali price_spike untuk referensi yang sama
+        $exists = PriceAnomaly::where('item_id', $history->item_id)
+            ->where('anomaly_type', 'price_spike')
+            ->where('reference_no', $history->reference_no)
+            ->exists();
+
+        if ($exists) return;
+
+        $severity = $history->severity === 'up_critical' ? 'critical' : 'warning';
+
+        $anomaly = PriceAnomaly::create([
+            'item_id'       => $history->item_id,
+            'warehouse_id'  => $history->warehouse_id,
+            'anomaly_type'  => 'price_spike',
+            'severity'      => $severity,
+            'value_before'  => (float) $history->prev_purchase_price,
+            'value_after'   => (float) $history->purchase_price,
+            'change_pct'    => (float) $history->price_change_pct,
+            'reference_no'  => $history->reference_no,
+            'supplier_name' => $history->supplier_name,
+            'meta'          => [
+                'severity_label' => $history->severity,
+                'item_name'      => $history->item->name ?? '-',
+            ],
+            'created_by' => $userId,
+        ]);
+
+        // Kirim notifikasi
+        User::role('purchasing')->get()->each(function ($user) use ($history, $anomaly) {
+            $user->notify(new PriceChangeNotification(
+                $history,
+                'anomaly',
+                ['anomaly_type' => 'price_spike', 'anomaly_id' => $anomaly->id]
+            ));
+        });
     }
 
     /**
@@ -186,7 +237,7 @@ class PriceAlertService
                 ]);
 
                 // Notifikasi
-                User::role('Purchasing')->get()->each(function ($user) use ($anomaly, $history) {
+                User::role('purchasing')->get()->each(function ($user) use ($anomaly, $history) {
                     $user->notify(new PriceChangeNotification(
                         $history,
                         'anomaly',
@@ -242,7 +293,7 @@ class PriceAlertService
             ]);
 
             // Notifikasi
-            User::role('Purchasing')->get()->each(function ($user) use ($history, $poPrice, $actualPrice, $diffPct) {
+            User::role('purchasing')->get()->each(function ($user) use ($history, $poPrice, $actualPrice, $diffPct) {
                 $user->notify(new PriceChangeNotification(
                     $history,
                     'anomaly',
@@ -271,8 +322,8 @@ class PriceAlertService
         $thisMonthTotal = (float) DB::table('surat_jalan_items')
             ->join('surat_jalan', 'surat_jalan.id', '=', 'surat_jalan_items.surat_jalan_id')
             ->where('surat_jalan.status', 'received')
-            ->whereYear('surat_jalan.received_at', now()->year)
-            ->whereMonth('surat_jalan.received_at', now()->month)
+            ->whereYear('surat_jalan.received_date', now()->year)
+            ->whereMonth('surat_jalan.received_date', now()->month)
             ->sum(DB::raw('surat_jalan_items.qty_received * surat_jalan_items.harga_satuan'));
 
         if ($thisMonthTotal <= 0) return;
@@ -285,8 +336,8 @@ class PriceAlertService
             $total = (float) DB::table('surat_jalan_items')
                 ->join('surat_jalan', 'surat_jalan.id', '=', 'surat_jalan_items.surat_jalan_id')
                 ->where('surat_jalan.status', 'received')
-                ->whereYear('surat_jalan.received_at', $date->year)
-                ->whereMonth('surat_jalan.received_at', $date->month)
+                ->whereYear('surat_jalan.received_date', $date->year)
+                ->whereMonth('surat_jalan.received_date', $date->month)
                 ->sum(DB::raw('surat_jalan_items.qty_received * surat_jalan_items.harga_satuan'));
 
             if ($total > 0) $prevTotals[] = $total;
@@ -323,7 +374,7 @@ class PriceAlertService
                     'created_by' => $userId,
                 ]);
 
-                User::role('Purchasing')->get()->each(function ($user) use ($thisMonthTotal, $avgPrevious, $diffPct) {
+                User::role('purchasing')->get()->each(function ($user) use ($thisMonthTotal, $avgPrevious, $diffPct) {
                     $user->notify(new \App\Notifications\BudgetAlertNotification(
                         $thisMonthTotal,
                         $avgPrevious,

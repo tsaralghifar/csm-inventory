@@ -7,9 +7,16 @@
         <h5 class="fw-bold mb-0" style="color:#1a3a5c;">Laporan Stok Persediaan</h5>
         <small class="text-muted">Pantau dan export data stok di seluruh gudang</small>
       </div>
-      <button v-if="loaded" class="btn btn-success btn-sm" @click="exportExcel">
-        <i class="bi bi-file-earmark-excel me-1"></i>Export
-      </button>
+      <div v-if="loaded" class="d-flex gap-2">
+        <button class="btn btn-success btn-sm" @click="exportExcel" :disabled="exportingExcel">
+          <span v-if="exportingExcel" class="spinner-border spinner-border-sm me-1" style="width:12px;height:12px;border-width:2px;"></span>
+          <i v-else class="bi bi-file-earmark-excel me-1"></i>Excel
+        </button>
+        <button class="btn btn-danger btn-sm" @click="exportPdf" :disabled="exportingPdf">
+          <span v-if="exportingPdf" class="spinner-border spinner-border-sm me-1" style="width:12px;height:12px;border-width:2px;"></span>
+          <i v-else class="bi bi-file-earmark-pdf me-1"></i>PDF
+        </button>
+      </div>
     </div>
 
     <!-- FILTER -->
@@ -321,6 +328,7 @@ import { useAuthStore } from '@/store/auth'
 
 const auth = useAuthStore(); const toast = useToast()
 const warehouses = ref([]); const stocks = ref([]); const loading = ref(false); const loaded = ref(false)
+const exportingExcel = ref(false); const exportingPdf = ref(false)
 const summary = ref({ total_items: 0, total_value: 0, critical: 0, minus: 0 })
 const params = ref({ warehouse_id: '', filter: '' })
 const searchQuery = ref('')
@@ -364,6 +372,8 @@ function setFilter(type) {
 }
 
 async function exportExcel() {
+  exportingExcel.value = true
+  try {
   // Load xlsx-js-style (supports cell styling unlike free SheetJS)
   if (!window._XLSXLoaded) {
     await new Promise((resolve, reject) => {
@@ -536,5 +546,36 @@ async function exportExcel() {
   XLSX.utils.book_append_sheet(wb, ws, 'Laporan Stok')
   XLSX.writeFile(wb, `Laporan_Stok_${warehouseName.replace(/\s+/g,'_')}_${now.toISOString().slice(0,10)}.xlsx`)
   toast.success('Export Excel (.xlsx) berhasil')
+  } finally { exportingExcel.value = false }
+}
+
+async function exportPdf() {
+  exportingPdf.value = true
+  try {
+    const warehouseName = warehouses.value.find(w => w.id == params.value.warehouse_id)?.name || 'Semua Gudang'
+    const queryParams = new URLSearchParams()
+    if (params.value.warehouse_id) queryParams.set('warehouse_id', params.value.warehouse_id)
+    if (params.value.filter) queryParams.set('filter', params.value.filter)
+    queryParams.set('warehouse_name', warehouseName)
+
+    const response = await axios.get('/reports/export-pdf?' + queryParams.toString(), {
+      responseType: 'blob'
+    })
+    const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+    const a = document.createElement('a')
+    a.href = url
+    const now = new Date()
+    const dateStr = now.toISOString().slice(0,10)
+    a.download = `Laporan_Stok_${warehouseName.replace(/\s+/g,'_')}_${dateStr}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast.success('Export PDF berhasil')
+  } catch (e) {
+    toast.error('Gagal export PDF')
+  } finally {
+    exportingPdf.value = false
+  }
 }
 </script>

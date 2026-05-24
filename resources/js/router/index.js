@@ -49,11 +49,13 @@ const routes = [
       { path: 'laporan/stok', component: () => import('@/pages/laporan/LaporanStok.vue'), meta: { title: 'Laporan Stok', icon: 'bi-file-earmark-text', permission: 'view-reports' } },
       { path: 'laporan/pengeluaran', component: () => import('@/pages/laporan/LaporanPengeluaran.vue'), meta: { title: 'Laporan Pengeluaran', icon: 'bi-file-earmark-bar-graph', permission: 'view-reports' } },
       { path: 'laporan/mutasi', component: () => import('@/pages/laporan/LaporanMutasi.vue'), meta: { title: 'Laporan Mutasi', icon: 'bi-file-earmark-arrow-right', permission: 'view-reports' } },
+      { path: 'laporan/pembelian', component: () => import('@/pages/laporan/LaporanPembelian.vue'), meta: { title: 'Laporan Pembelian', icon: 'bi-bag-check', permission: 'view-reports' } },
       { path: 'laporan/accounting', component: () => import('@/pages/laporan/LaporanAccounting.vue'), meta: { title: 'Laporan Accounting', icon: 'bi-file-earmark-bar-graph', permission: 'view-accounting' } },
       { path: 'laporan/cash-flow', component: () => import('@/pages/laporan/LaporanCashFlow.vue'), meta: { title: 'Laporan Cash Flow', icon: 'bi-arrow-left-right', permission: 'view-accounting' } },
       { path: 'laporan/hutang-supplier', component: () => import('@/pages/laporan/LaporanHutangSupplier.vue'), meta: { title: 'Laporan Hutang Supplier', icon: 'bi-receipt-cutoff', permission: 'view-accounting' } },
       { path: 'laporan/beban', component: () => import('@/pages/laporan/LaporanBeban.vue'), meta: { title: 'Laporan Beban', icon: 'bi-cash-stack', permission: 'view-accounting' } },
       { path: 'laporan/payroll', component: () => import('@/pages/laporan/LaporanPayroll.vue'), meta: { title: 'Laporan Payroll', icon: 'bi-file-earmark-person', permission: 'view-payroll' } },
+      { path: 'analitik-harga', component: () => import('@/pages/analitik/AnalitikHarga.vue'), meta: { title: 'Analitik Harga', icon: 'bi-graph-up-arrow', permission: 'view-reports' } },
 
       // Admin
       { path: 'admin/users',     component: () => import('@/pages/admin/Users.vue'),    meta: { title: 'Manajemen User', icon: 'bi-person-gear',   permission: 'manage-users'    } },

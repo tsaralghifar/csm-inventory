@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\Item;
-use App\Models\ItemPriceHistory;
 use App\Models\ItemStock;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -176,20 +175,6 @@ class SuratJalanService
 
         // ── Budget Alert check ────────────────────────────────────────────────
         app(\App\Services\PriceAlertService::class)->checkBudgetAlert($userId);
-
-        // Catat riwayat harga pembelian
-        ItemPriceHistory::create([
-            'item_id'          => $poItem->item_id,
-            'warehouse_id'     => $po->warehouse_id,
-            'purchase_price'   => $harga,
-            'avg_price_before' => $stock->avg_price,
-            'avg_price_after'  => round($newAvgPrice, 2),
-            'qty_received'     => $qty,
-            'reference_no'     => $po->po_number,
-            'source_type'      => 'purchase_order',
-            'created_by'       => $userId,
-            'transaction_date' => now()->toDateString(),
-        ]);
 
         StockMovement::create([
             'item_id'          => $poItem->item_id,
