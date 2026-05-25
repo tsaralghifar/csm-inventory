@@ -218,6 +218,75 @@ class PermintaanMaterialController extends Controller
         ]);
     }
 
+    // POST /permintaan-material/{pm}/items
+    public function addItem(Request $request, PermintaanMaterial $pm)
+    {
+        if ($pm->status !== 'draft') {
+            return response()->json(['success' => false, 'message' => 'Item hanya bisa ditambahkan saat status masih Draft.'], 422);
+        }
+
+        $validated = $request->validate([
+            'nama_barang'    => 'required|string|max:255',
+            'part_number'    => 'nullable|string|max:100',
+            'kode_unit'      => 'nullable|string|max:100',
+            'tipe_unit'      => 'nullable|string|max:100',
+            'qty'            => 'required|numeric|min:0.01',
+            'satuan'         => 'required|string|max:50',
+            'keterangan'     => 'nullable|string',
+            'item_id'        => 'nullable|exists:items,id',
+            'is_new_item'    => 'nullable|boolean',
+            'new_part_number'=> 'nullable|string|max:100',
+            'new_category_id'=> 'nullable|exists:categories,id',
+            'new_brand'      => 'nullable|string|max:100',
+            'new_min_stock'  => 'nullable|numeric|min:0',
+        ]);
+
+        $itemId = $validated['item_id'] ?? null;
+
+        // Cek duplikat dalam PM yang sama
+        if ($itemId && $pm->items()->where('item_id', $itemId)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Barang ini sudah ada di daftar PM. Tidak boleh menambahkan barang yang sama dua kali.'], 422);
+        }
+        $partNumber = $validated['part_number'] ?? ($validated['new_part_number'] ?? null);
+        if ($partNumber && $pm->items()->where('part_number', $partNumber)->exists()) {
+            return response()->json(['success' => false, 'message' => "Part Number \"{$partNumber}\" sudah ada di daftar PM ini."], 422);
+        }
+
+        // Jika barang baru, daftarkan ke master data terlebih dahulu
+        if (!empty($validated['is_new_item'])) {
+            if (empty($validated['new_part_number'])) {
+                return response()->json(['success' => false, 'message' => 'Part Number wajib diisi untuk barang baru.'], 422);
+            }
+            if (empty($validated['new_category_id'])) {
+                return response()->json(['success' => false, 'message' => 'Kategori wajib dipilih untuk barang baru.'], 422);
+            }
+            $newItem = \App\Models\Item::create([
+                'name'        => $validated['nama_barang'],
+                'part_number' => $validated['new_part_number'],
+                'category_id' => $validated['new_category_id'],
+                'brand'       => $validated['new_brand'] ?? null,
+                'unit'        => $validated['satuan'],
+                'min_stock'   => $validated['new_min_stock'] ?? 0,
+            ]);
+            $itemId = $newItem->id;
+        }
+
+        $item = $pm->items()->create([
+            'item_id'     => $itemId,
+            'nama_barang' => $validated['nama_barang'],
+            'part_number' => $validated['part_number'] ?? null,
+            'kode_unit'   => $validated['kode_unit'] ?? null,
+            'tipe_unit'   => $validated['tipe_unit'] ?? null,
+            'qty'         => $validated['qty'],
+            'satuan'      => $validated['satuan'],
+            'keterangan'  => $validated['keterangan'] ?? null,
+        ]);
+
+        broadcast(new PermintaanMaterialUpdated($pm->fresh(), 'updated'))->toOthers();
+
+        return response()->json(['success' => true, 'data' => $item, 'message' => 'Item berhasil ditambahkan.']);
+    }
+
     // PUT /permintaan-material/{pm}/items/{item}
     public function updateItem(Request $request, PermintaanMaterial $pm, \App\Models\PermintaanMaterialItem $item)
     {
@@ -239,6 +308,23 @@ class PermintaanMaterialController extends Controller
         ]);
 
         $item->update($validated);
+
+        // Sync perubahan nama & part_number ke master barang jika item berasal dari master
+        if ($item->item_id) {
+            $masterItem = \App\Models\Item::find($item->item_id);
+            if ($masterItem) {
+                $syncData = [];
+                if (!empty($validated['part_number']) && $masterItem->part_number !== $validated['part_number']) {
+                    $syncData['part_number'] = $validated['part_number'];
+                }
+                if ($masterItem->name !== $validated['nama_barang']) {
+                    $syncData['name'] = $validated['nama_barang'];
+                }
+                if (!empty($syncData)) {
+                    $masterItem->update($syncData);
+                }
+            }
+        }
 
         broadcast(new PermintaanMaterialUpdated($pm->fresh(), 'updated'))->toOthers();
 

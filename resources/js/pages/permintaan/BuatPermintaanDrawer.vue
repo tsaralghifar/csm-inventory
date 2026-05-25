@@ -260,10 +260,11 @@
                         <div class="col-md-6">
                           <label class="pm-label">Part Number <span class="text-danger">*</span></label>
                           <input v-model="item.new_part_number" type="text" class="form-control form-control-sm"
-                            :class="item._partExistsWarning ? 'border-danger' : ''"
+                            :class="item._partExistsWarning || item._partDupInForm ? 'border-danger' : ''"
                             placeholder="Contoh: FLT-OLI-320..."
-                            @input="checkPartNumberExists(item)" />
-                          <div v-if="item._partExistsWarning" class="mt-1 p-2 rounded border border-danger" style="background:#fff5f5;">
+                            @input="checkPartNumberExists(item); checkDupInForm(item)" />
+                          <!-- Duplikat di master -->
+                          <div v-if="item._partExistsWarning && !item._partDupInForm" class="mt-1 p-2 rounded border border-danger" style="background:#fff5f5;">
                             <small class="text-danger fw-semibold d-block mb-1">
                               <i class="bi bi-exclamation-circle me-1"></i>
                               Part Number sudah ada di Master Barang.
@@ -271,6 +272,13 @@
                             <button type="button" class="btn btn-sm btn-danger w-100" @click="pakaiBarangMaster(item)">
                               <i class="bi bi-box-seam me-1"></i>Gunakan Barang yang Sudah Ada
                             </button>
+                          </div>
+                          <!-- Duplikat dalam form ini -->
+                          <div v-if="item._partDupInForm" class="mt-1 p-2 rounded border border-danger" style="background:#fff5f5;">
+                            <small class="text-danger fw-semibold">
+                              <i class="bi bi-exclamation-circle me-1"></i>
+                              Part Number ini sudah dipakai di barang lain dalam daftar ini.
+                            </small>
                           </div>
                         </div>
                         <div class="col-md-6">
@@ -473,7 +481,7 @@ function defaultItem() {
     is_new_item: false, new_part_number: '', new_category_id: '', new_brand: '', new_min_stock: 0,
     _searchStok: '', _showDropdown: false, _stok: undefined,
     _unitSearch: '', _showUnitDrop: false, _unitDropResults: [],
-    _partExistsWarning: false, _partExistsItem: null,
+    _partExistsWarning: false, _partExistsItem: null, _partDupInForm: false,
   }
 }
 
@@ -615,6 +623,7 @@ function clearItemSearch(item) {
 function aktivasiBarangBaru(item) {
   item.is_new_item = true
   item.nama_barang = item._searchStok || ''
+  item.part_number = ''
   item.new_part_number = ''
   item.new_category_id = ''
   item.new_brand = ''
@@ -622,6 +631,8 @@ function aktivasiBarangBaru(item) {
   item._showDropdown = false
   item._stok = undefined
   item.item_id = null
+  item._partDupInForm = false
+  item._partExistsWarning = false
 }
 
 function batalBarangBaru(item) {
@@ -637,7 +648,15 @@ function batalBarangBaru(item) {
 }
 
 let partCheckTimer = null
-async function checkPartNumberExists(item) {
+async function checkDupInForm(item) {
+  const pn = (item.new_part_number || '').trim().toLowerCase()
+  if (!pn) { item._partDupInForm = false; return }
+  item._partDupInForm = form.value.items.some(
+    other => other !== item && (other.new_part_number || '').trim().toLowerCase() === pn
+  )
+}
+
+function checkPartNumberExists(item) {
   item._partExistsWarning = false
   item._partExistsItem = null
   const pn = (item.new_part_number || '').trim()
@@ -711,12 +730,42 @@ function removeUnitFromItem(item, idx) {
 async function savePM() {
   if (!form.value.type)          return toast.error('Pilih tipe permintaan')
   if (!form.value.warehouse_id)  return toast.error('Pilih gudang terlebih dahulu')
+
+  const seenParts = []
+  const seenItemIds = []
   for (const i of form.value.items) {
     if (!i.nama_barang || !i.qty || !i.satuan)
       return toast.error('Lengkapi semua field wajib pada setiap barang')
     if (i.is_new_item) {
-      if (!i.new_part_number)  return toast.error(`Part Number wajib diisi: "${i.nama_barang}"`)
-      if (!i.new_category_id)  return toast.error(`Kategori wajib dipilih: "${i.nama_barang}"`)
+      if (!i.new_part_number)
+        return toast.error(`Part Number wajib diisi untuk barang baru: "${i.nama_barang}"`)
+      if (!i.new_category_id)
+        return toast.error(`Kategori wajib dipilih untuk barang baru: "${i.nama_barang}"`)
+      if (i._partExistsWarning)
+        return toast.error(`Part Number "${i.new_part_number}" sudah ada di master. Gunakan barang yang sudah ada atau ganti Part Number.`)
+      if (i._partDupInForm)
+        return toast.error(`Part Number "${i.new_part_number}" sudah dipakai oleh barang lain dalam daftar ini.`)
+      const pn = i.new_part_number.toLowerCase()
+      if (seenParts.includes(pn))
+        return toast.error(`Duplikat: Part Number "${i.new_part_number}" sudah ada di daftar barang ini.`)
+      seenParts.push(pn)
+    } else if (i.item_id) {
+      if (seenItemIds.includes(i.item_id))
+        return toast.error(`Duplikat: "${i.nama_barang}" sudah ada di daftar barang ini.`)
+      seenItemIds.push(i.item_id)
+      if (i.part_number) {
+        const pn = i.part_number.toLowerCase()
+        if (seenParts.includes(pn))
+          return toast.error(`Duplikat: Part Number "${i.part_number}" sudah ada di daftar barang ini.`)
+        seenParts.push(pn)
+      }
+    } else {
+      if (!i.part_number)
+        return toast.error(`"${i.nama_barang}" belum dipilih dari master atau Part Number belum diisi. Cari barang dari daftar atau klik "Barang Baru".`)
+      const pn = i.part_number.toLowerCase()
+      if (seenParts.includes(pn))
+        return toast.error(`Duplikat: Part Number "${i.part_number}" sudah ada di daftar barang ini.`)
+      seenParts.push(pn)
     }
   }
   saving.value = true

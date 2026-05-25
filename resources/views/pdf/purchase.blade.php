@@ -369,15 +369,15 @@ table.dt tr.r-total td.rv { color:#4ade80; font-size:9.5px; text-align:right; }
       $rClass  = $overdue ? 'r-po r-overdue' : ($idx % 2 === 0 ? 'r-po r-even' : 'r-po r-odd');
       $grandTotal += $po['grand_total'];
 
-      // invoice status
-      $invs = $po['supplier_invoices'] ?? [];
+      // invoice status — $invs bisa berupa array atau Collection
+      $invs = collect($po['supplier_invoices'] ?? []);
       if ($po['payment_type'] === 'cash') {
         $bayarLbl = 'Lunas'; $bayarBdg = 'b-lunas';
-      } elseif (empty($invs)) {
+      } elseif ($invs->isEmpty()) {
         $bayarLbl = 'Belum'; $bayarBdg = 'b-unpaid';
-      } elseif (collect($invs)->every(fn($i) => $i['status'] === 'paid')) {
+      } elseif ($invs->every(fn($i) => ($i['status'] ?? '') === 'paid')) {
         $bayarLbl = 'Lunas'; $bayarBdg = 'b-lunas';
-      } elseif (collect($invs)->some(fn($i) => $i['status'] === 'partial')) {
+      } elseif ($invs->some(fn($i) => ($i['status'] ?? '') === 'partial')) {
         $bayarLbl = 'Parsial'; $bayarBdg = 'b-pars';
       } elseif ($overdue) {
         $bayarLbl = 'JT'; $bayarBdg = 'b-cancel';

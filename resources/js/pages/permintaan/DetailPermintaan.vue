@@ -242,9 +242,15 @@
           <div class="csm-card">
             <div class="csm-card-header d-flex align-items-center justify-content-between">
               <h6><i class="bi bi-list-check me-2"></i>Daftar Barang Diminta</h6>
-              <span v-if="pm.status === 'draft'" class="badge bg-warning text-dark small">
-                <i class="bi bi-pencil me-1"></i>Draft — item bisa diedit / dihapus
-              </span>
+              <div class="d-flex align-items-center gap-2">
+                <span v-if="pm.status === 'draft'" class="badge bg-warning text-dark small">
+                  <i class="bi bi-pencil me-1"></i>Draft — item bisa diedit / dihapus
+                </span>
+                <button v-if="pm.status === 'draft' && can('create-pm')"
+                  class="btn btn-sm btn-success" @click="openAddItem">
+                  <i class="bi bi-plus-lg me-1"></i>Tambah Barang
+                </button>
+              </div>
             </div>
             <div class="csm-card-body p-0">
               <div class="table-responsive">
@@ -364,8 +370,11 @@
                 <tbody>
                   <tr v-for="item in unorderedItems" :key="item.id" class="table-warning">
                     <td>
-                      <code v-if="item.part_number" class="small text-primary fw-semibold">{{ item.part_number }}</code>
-                      <span v-else class="text-muted small">-</span>
+                      <code v-if="item.part_number || item.item?.part_number"
+                        class="small text-primary fw-semibold">
+                        {{ item.part_number || item.item?.part_number }}
+                      </code>
+                      <span v-else class="badge bg-light text-muted border" style="font-size:.65rem;">Tanpa PN</span>
                     </td>
                     <td class="fw-semibold">{{ item.nama_barang }}</td>
                     <td class="text-center small text-muted">{{ item.qty_pm }}</td>
@@ -754,7 +763,7 @@
                     </td>
                     <td>
                       <code v-if="item.part_number" class="small text-primary fw-semibold">{{ item.part_number }}</code>
-                      <span v-else class="text-muted small">-</span>
+                      <span v-else class="badge bg-light text-muted border" style="font-size:.65rem;">Tanpa PN</span>
                     </td>
                     <td>
                       <div class="fw-semibold small">{{ item.nama_barang }}</div>
@@ -854,6 +863,236 @@
       </div>
     </div>
 
+    <!-- ===== Modal Tambah Barang ===== -->
+    <div class="modal fade" id="modalAddItem" tabindex="-1" data-bs-backdrop="static">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title text-success"><i class="bi bi-plus-circle me-2"></i>Tambah Barang</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="row g-3">
+
+              <!-- ── SEARCH BARANG ── -->
+              <div class="col-12" v-if="!addItemForm.is_new_item">
+                <label class="form-label small fw-semibold">Cari Barang dari Master Data</label>
+                <div class="position-relative">
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white border-end-0">
+                      <i class="bi bi-search text-muted"></i>
+                    </span>
+                    <input
+                      v-model="addItemSearch"
+                      type="text"
+                      class="form-control border-start-0"
+                      :class="addItemForm.item_id ? 'bg-light' : ''"
+                      :placeholder="pm?.type === 'part' ? 'Cari nama part / part number...' : 'Cari nama barang...'"
+                      :readonly="!!addItemForm.item_id"
+                      @input="onAddItemSearch"
+                      @focus="showAddItemDropdown = true"
+                      @blur="() => setTimeout(() => { showAddItemDropdown = false }, 200)"
+                    />
+                    <button v-if="addItemSearch" type="button"
+                      class="btn btn-outline-secondary btn-sm"
+                      @mousedown.prevent="clearAddItemSearch">
+                      <i class="bi bi-x"></i>
+                    </button>
+                  </div>
+
+                  <!-- Dropdown hasil -->
+                  <div v-if="showAddItemDropdown && addItemSearch && !addItemForm.item_id"
+                    class="add-item-dropdown shadow-sm border rounded">
+                    <div v-if="addItemSearchLoading" class="p-3 text-center text-muted small">
+                      <span class="csm-spinner me-1"></span>Mencari...
+                    </div>
+                    <template v-else>
+                      <div v-for="item in addItemResults" :key="item.id"
+                        class="add-item-dropdown__row"
+                        @mousedown.prevent="pilihBarangMaster(item)">
+                        <div>
+                          <div class="fw-semibold small" style="color:#1e293b;">{{ item.name }}</div>
+                          <small class="text-muted">
+                            <span v-if="item.part_number" class="text-primary fw-semibold me-1">{{ item.part_number }}</span>
+                            <span v-if="item.category?.name">· {{ item.category.name }}</span>
+                            <span v-if="item.brand"> · {{ item.brand }}</span>
+                          </small>
+                        </div>
+                        <span class="badge bg-light text-dark border flex-shrink-0">{{ item.unit }}</span>
+                      </div>
+                      <div v-if="!addItemResults.length && addItemSearch" class="p-2 text-center">
+                        <small class="text-muted d-block mb-2">Tidak ditemukan: <strong>{{ addItemSearch }}</strong></small>
+                      </div>
+                      <div class="p-2 border-top">
+                        <button type="button" class="btn btn-warning btn-sm w-100"
+                          @mousedown.prevent="aktivasiBarangBaruAdd">
+                          <i class="bi bi-plus-circle me-1"></i>
+                          Daftarkan "{{ addItemSearch || 'barang baru' }}" sebagai Barang Baru
+                        </button>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Barang terpilih badge -->
+                <div v-if="addItemForm.item_id" class="mt-2">
+                  <span class="badge bg-success-subtle text-success border border-success-subtle">
+                    <i class="bi bi-check-circle me-1"></i>Barang dipilih dari master data
+                  </span>
+                </div>
+              </div>
+
+              <!-- ── FORM BARANG BARU ── -->
+              <div v-if="addItemForm.is_new_item" class="col-12">
+                <div class="p-3 rounded border border-warning" style="background:#fffbeb;">
+                  <div class="d-flex align-items-center justify-content-between mb-2">
+                    <small class="fw-semibold text-warning">
+                      <i class="bi bi-exclamation-triangle me-1"></i>Barang baru — akan didaftarkan ke Master Barang
+                    </small>
+                    <button type="button" class="btn btn-xs btn-outline-secondary" @click="batalBarangBaruAdd">
+                      <i class="bi bi-arrow-left me-1"></i>Batal
+                    </button>
+                  </div>
+                  <div class="row g-2">
+                    <div class="col-md-6">
+                      <label class="form-label small fw-semibold">Part Number <span class="text-danger">*</span></label>
+                      <input v-model="addItemForm.new_part_number" type="text"
+                        class="form-control form-control-sm"
+                        :class="addItemDupWarning ? 'border-danger' : ''"
+                        placeholder="Contoh: FLT-OLI-320..."
+                        @input="checkAddItemPartNumber" />
+                      <div v-if="addItemDupWarning" class="mt-1 p-2 rounded border border-danger" style="background:#fff5f5;">
+                        <small class="text-danger fw-semibold d-block mb-1">
+                          <i class="bi bi-exclamation-circle me-1"></i>
+                          Part Number sudah ada di Master Barang.
+                        </small>
+                        <button type="button" class="btn btn-sm btn-danger w-100" @click="pakaiMasterDariAddItem">
+                          <i class="bi bi-box-seam me-1"></i>Gunakan "{{ addItemDupItem?.name }}"
+                        </button>
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label small fw-semibold">Kategori <span class="text-danger">*</span></label>
+                      <select v-model="addItemForm.new_category_id" class="form-select form-select-sm">
+                        <option value="">-- Pilih Kategori --</option>
+                        <option v-for="cat in addItemCategories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
+                      </select>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label small fw-semibold">Brand / Merk</label>
+                      <input v-model="addItemForm.new_brand" type="text" class="form-control form-control-sm" placeholder="CAT, Komatsu..." />
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label small fw-semibold">Stok Minimum</label>
+                      <input v-model="addItemForm.new_min_stock" type="number" class="form-control form-control-sm" min="0" placeholder="0" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ── NAMA BARANG ── -->
+              <div class="col-12">
+                <label class="form-label small fw-semibold">Nama Barang <span class="text-danger">*</span></label>
+                <input v-model="addItemForm.nama_barang" type="text" class="form-control form-control-sm"
+                  :class="addItemForm.is_new_item ? 'border-warning' : (addItemForm.item_id ? 'bg-light' : '')"
+                  :readonly="!!addItemForm.item_id && !addItemForm.is_new_item"
+                  placeholder="Nama barang..." />
+              </div>
+
+              <!-- ── FIELDS PART ── -->
+              <template v-if="pm?.type === 'part'">
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">Part Number</label>
+                  <input v-model="addItemForm.part_number" type="text" class="form-control form-control-sm"
+                    :readonly="!!addItemForm.item_id && !addItemForm.is_new_item"
+                    :class="addItemForm.item_id && !addItemForm.is_new_item ? 'bg-light' : ''"
+                    placeholder="Contoh: J8610495" />
+                </div>
+
+                <!-- Kode Unit multi-select -->
+                <div class="col-md-6 position-relative">
+                  <label class="form-label small fw-semibold">Kode Unit / Alat Berat</label>
+                  <!-- Tags yang sudah dipilih -->
+                  <div v-if="addItemUnitList.length" class="d-flex flex-wrap gap-1 mb-1">
+                    <span v-for="(ku, ki) in addItemUnitList" :key="ki"
+                      class="badge d-inline-flex align-items-center gap-1"
+                      style="background:#1a3a5c;font-size:.75rem;padding:4px 8px;">
+                      {{ ku.kode }}
+                      <span class="text-white-50 small">{{ ku.tipe }}</span>
+                      <button type="button" class="btn-close btn-close-white ms-1"
+                        style="font-size:.55rem;opacity:.7;"
+                        @click="removeAddItemUnit(ki)"></button>
+                    </span>
+                  </div>
+                  <!-- Input search unit -->
+                  <input
+                    v-model="addItemUnitSearch"
+                    type="text"
+                    class="form-control form-control-sm"
+                    placeholder="Cari kode unit... (CSM 0038)"
+                    autocomplete="off"
+                    @input="filterAddItemUnits"
+                    @focus="showAddItemUnitDrop = true; filterAddItemUnits()"
+                    @blur="() => setTimeout(() => { showAddItemUnitDrop = false }, 200)"
+                  />
+                  <!-- Dropdown -->
+                  <ul v-if="showAddItemUnitDrop && addItemUnitDropResults.length"
+                    class="list-group position-absolute w-100 shadow-sm"
+                    style="z-index:1070;max-height:180px;overflow-y:auto;top:100%;left:0;">
+                    <li v-for="u in addItemUnitDropResults" :key="u.id"
+                      class="list-group-item list-group-item-action py-1 px-2 small"
+                      style="cursor:pointer;"
+                      @mousedown.prevent="addAddItemUnit(u)">
+                      <strong>{{ u.unit_code }}</strong>
+                      <span class="text-muted ms-1">— {{ u.type_unit }} {{ u.brand }}</span>
+                      <span v-if="addItemUnitList.some(k => k.kode === u.unit_code)"
+                        class="badge bg-success ms-1" style="font-size:.65rem;">✓</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- Tipe Unit (auto-filled) -->
+                <div class="col-12">
+                  <label class="form-label small fw-semibold">Tipe Unit</label>
+                  <input
+                    :value="addItemUnitList.map(k => k.tipe).filter(Boolean).join(', ') || addItemForm.tipe_unit"
+                    type="text" class="form-control form-control-sm bg-light"
+                    placeholder="Otomatis terisi dari unit yang dipilih" readonly />
+                </div>
+              </template>
+
+              <!-- ── QTY & SATUAN ── -->
+              <div class="col-6">
+                <label class="form-label small fw-semibold">Jumlah <span class="text-danger">*</span></label>
+                <input v-model="addItemForm.qty" type="number" class="form-control form-control-sm" min="0.01" step="0.01" />
+              </div>
+              <div class="col-6">
+                <label class="form-label small fw-semibold">Satuan <span class="text-danger">*</span></label>
+                <input v-model="addItemForm.satuan" type="text" class="form-control form-control-sm"
+                  :class="addItemForm.item_id && !addItemForm.is_new_item ? 'bg-light' : ''"
+                  :readonly="!!addItemForm.item_id && !addItemForm.is_new_item"
+                  placeholder="Pcs, Ltr, Set..." />
+              </div>
+
+              <!-- ── KETERANGAN ── -->
+              <div class="col-12">
+                <label class="form-label small fw-semibold">Keterangan</label>
+                <input v-model="addItemForm.keterangan" type="text" class="form-control form-control-sm" placeholder="Opsional..." />
+              </div>
+
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+            <button type="button" class="btn btn-success btn-sm" @click="saveAddItem" :disabled="saving">
+              <span v-if="saving" class="csm-spinner me-1"></span>
+              <i class="bi bi-plus-lg me-1"></i>Tambah Barang
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== Modal Edit Item ===== -->
     <div class="modal fade" id="modalEditItem" tabindex="-1" data-bs-backdrop="static">
       <div class="modal-dialog">
@@ -941,6 +1180,206 @@ const bonForm = ref({ warehouse_id: '', issue_date: '', received_by: '', notes: 
 const poForm = ref({ vendor_name: '', vendor_contact: '', warehouse_id: '', expected_date: '', notes: '', diskon_persen: 0, ppn_percent: 0, items: [], payment_type: 'cash', payment_term_days: 30 })
 
 const editItemForm = ref({ id: null, part_number: '', nama_barang: '', kode_unit: '', tipe_unit: '', qty: 1, satuan: '', keterangan: '' })
+const addItemForm  = ref({
+  item_id: null, part_number: '', nama_barang: '', kode_unit: '', tipe_unit: '',
+  qty: 1, satuan: 'Pcs', keterangan: '',
+  is_new_item: false,
+  new_part_number: '', new_category_id: '', new_brand: '', new_min_stock: 0,
+})
+const addItemSearch        = ref('')
+const showAddItemDropdown  = ref(false)
+const addItemResults       = ref([])
+const addItemSearchLoading = ref(false)
+const addItemCategories    = ref([])
+
+const addItemDupWarning  = ref(false)
+const addItemDupItem     = ref(null)
+let addItemDupTimer = null
+
+async function checkAddItemPartNumber() {
+  addItemDupWarning.value = false; addItemDupItem.value = null
+  const pn = (addItemForm.value.new_part_number || '').trim()
+  if (pn.length < 2) return
+  clearTimeout(addItemDupTimer)
+  addItemDupTimer = setTimeout(async () => {
+    try {
+      const res = await axios.get('/items', { params: { search: pn, per_page: 5 } })
+      const found = (res.data.data || []).find(i => i.part_number?.toLowerCase() === pn.toLowerCase())
+      if (found) { addItemDupWarning.value = true; addItemDupItem.value = found }
+    } catch {}
+  }, 400)
+}
+
+function pakaiMasterDariAddItem() {
+  const master = addItemDupItem.value; if (!master) return
+  addItemForm.value.is_new_item = false
+  addItemForm.value.item_id     = master.id
+  addItemForm.value.nama_barang = master.name
+  addItemForm.value.part_number = master.part_number || ''
+  addItemForm.value.satuan      = master.unit || ''
+  addItemSearch.value           = master.name
+  addItemDupWarning.value       = false; addItemDupItem.value = null
+}
+function onAddItemSearch() {
+  showAddItemDropdown.value = true
+  clearTimeout(addItemSearchTimer)
+  if (!addItemSearch.value.trim()) { addItemResults.value = []; return }
+  addItemSearchLoading.value = true
+  addItemSearchTimer = setTimeout(async () => {
+    try {
+      const res = await axios.get('/items', { params: { search: addItemSearch.value, per_page: 10 } })
+      addItemResults.value = res.data.data || []
+    } catch { addItemResults.value = [] }
+    finally { addItemSearchLoading.value = false }
+  }, 300)
+}
+
+function pilihBarangMaster(item) {
+  addItemForm.value.item_id    = item.id
+  addItemForm.value.nama_barang = item.name
+  addItemForm.value.part_number = item.part_number || ''
+  addItemForm.value.satuan      = item.unit || ''
+  addItemSearch.value           = item.name
+  showAddItemDropdown.value     = false
+}
+
+function clearAddItemSearch() {
+  addItemSearch.value           = ''
+  addItemResults.value          = []
+  addItemForm.value.item_id     = null
+  addItemForm.value.nama_barang = ''
+  addItemForm.value.part_number = ''
+  addItemForm.value.satuan      = 'Pcs'
+}
+
+async function aktivasiBarangBaruAdd() {
+  addItemForm.value.is_new_item       = true
+  addItemForm.value.nama_barang       = addItemSearch.value
+  addItemForm.value.new_part_number   = ''
+  addItemForm.value.new_category_id   = ''
+  addItemForm.value.new_brand         = ''
+  addItemForm.value.new_min_stock     = 0
+  showAddItemDropdown.value           = false
+  // Load categories jika belum
+  if (!addItemCategories.value.length) {
+    try {
+      const res = await axios.get('/categories')
+      addItemCategories.value = res.data.data || res.data || []
+    } catch {}
+  }
+}
+
+function batalBarangBaruAdd() {
+  addItemForm.value.is_new_item = false
+  addItemForm.value.item_id     = null
+}
+
+const addItemUnitList        = ref([])   // [{kode, tipe}]
+const addItemUnitSearch      = ref('')
+const showAddItemUnitDrop    = ref(false)
+const addItemUnitDropResults = ref([])
+const allUnits               = ref([])
+
+async function loadUnits() {
+  if (allUnits.value.length) return
+  try {
+    const res = await axios.get('/units', { params: { per_page: 999 } })
+    allUnits.value = res.data.data || []
+  } catch {}
+}
+
+function filterAddItemUnits() {
+  const q = (addItemUnitSearch.value || '').toLowerCase()
+  addItemUnitDropResults.value = q.length < 1
+    ? allUnits.value.slice(0, 10)
+    : allUnits.value.filter(u =>
+        u.unit_code?.toLowerCase().includes(q) ||
+        u.type_unit?.toLowerCase().includes(q) ||
+        u.brand?.toLowerCase().includes(q)
+      ).slice(0, 15)
+}
+
+function addAddItemUnit(u) {
+  if (addItemUnitList.value.some(k => k.kode === u.unit_code)) {
+    addItemUnitSearch.value = ''; showAddItemUnitDrop.value = false; return
+  }
+  addItemUnitList.value.push({ kode: u.unit_code || '', tipe: u.type_unit || '' })
+  addItemForm.value.kode_unit = addItemUnitList.value.map(k => k.kode).join(', ')
+  addItemForm.value.tipe_unit = addItemUnitList.value.map(k => k.tipe).filter(Boolean).join(', ')
+  addItemUnitSearch.value = ''; showAddItemUnitDrop.value = false
+}
+
+function removeAddItemUnit(idx) {
+  addItemUnitList.value.splice(idx, 1)
+  addItemForm.value.kode_unit = addItemUnitList.value.map(k => k.kode).join(', ')
+  addItemForm.value.tipe_unit = addItemUnitList.value.map(k => k.tipe).filter(Boolean).join(', ')
+}
+
+function openAddItem() {
+  addItemForm.value = {
+    item_id: null, part_number: '', nama_barang: '', kode_unit: '', tipe_unit: '',
+    qty: 1, satuan: 'Pcs', keterangan: '',
+    is_new_item: false,
+    new_part_number: '', new_category_id: '', new_brand: '', new_min_stock: 0,
+  }
+  addItemSearch.value       = ''
+  addItemResults.value      = []
+  showAddItemDropdown.value = false
+  addItemUnitList.value     = []
+  addItemUnitSearch.value   = ''
+  addItemUnitDropResults.value = []
+  addItemDupWarning.value      = false
+  addItemDupItem.value         = null
+  loadUnits()
+  new Modal('#modalAddItem').show()
+}
+
+async function saveAddItem() {
+  if (!addItemForm.value.nama_barang) return toast.error('Nama barang wajib diisi')
+  if (!addItemForm.value.qty || addItemForm.value.qty <= 0) return toast.error('Jumlah harus lebih dari 0')
+  if (!addItemForm.value.satuan) return toast.error('Satuan wajib diisi')
+  if (addItemForm.value.is_new_item) {
+    if (!addItemForm.value.new_part_number) return toast.error('Part Number wajib diisi untuk barang baru')
+    if (!addItemForm.value.new_category_id) return toast.error('Kategori wajib dipilih untuk barang baru')
+    if (addItemDupWarning.value)
+      return toast.error(`Part Number "${addItemForm.value.new_part_number}" sudah ada di master. Gunakan barang yang sudah ada atau ganti Part Number.`)
+  }
+
+  // Cek duplikat terhadap item yang sudah ada di PM
+  const existingItems = pm.value?.items || []
+  const newPN = (addItemForm.value.part_number || addItemForm.value.new_part_number || '').toLowerCase()
+  const newItemId = addItemForm.value.item_id
+
+  if (newItemId && existingItems.some(i => i.item_id === newItemId)) {
+    return toast.error(`Barang "${addItemForm.value.nama_barang}" sudah ada di daftar PM ini.`)
+  }
+  if (newPN && existingItems.some(i => (i.part_number || '').toLowerCase() === newPN)) {
+    return toast.error(`Part Number "${newPN.toUpperCase()}" sudah ada di daftar PM ini.`)
+  }
+  saving.value = true
+  try {
+    await axios.post(`/permintaan-material/${pm.value.id}/items`, {
+      item_id:       addItemForm.value.item_id,
+      nama_barang:   addItemForm.value.nama_barang,
+      part_number:   addItemForm.value.part_number,
+      kode_unit:     addItemForm.value.kode_unit,
+      tipe_unit:     addItemForm.value.tipe_unit,
+      qty:           addItemForm.value.qty,
+      satuan:        addItemForm.value.satuan,
+      keterangan:    addItemForm.value.keterangan,
+      is_new_item:   addItemForm.value.is_new_item,
+      new_part_number: addItemForm.value.new_part_number,
+      new_category_id: addItemForm.value.new_category_id,
+      new_brand:       addItemForm.value.new_brand,
+      new_min_stock:   addItemForm.value.new_min_stock,
+    })
+    toast.success('Barang berhasil ditambahkan')
+    Modal.getInstance('#modalAddItem')?.hide()
+    loadPM()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Gagal menambahkan barang')
+  } finally { saving.value = false }
+}
 
 function openEditItem(item) {
   editItemForm.value = {
@@ -1528,3 +1967,30 @@ function exportExcel() {
   .catch(() => toast.error('Gagal mengunduh Excel'))
 }
 </script>
+
+<style scoped>
+.add-item-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0; right: 0;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+  z-index: 1060;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.add-item-dropdown__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background .12s;
+}
+.add-item-dropdown__row:last-child { border-bottom: none; }
+.add-item-dropdown__row:hover { background: #f0f9ff; }
+</style>

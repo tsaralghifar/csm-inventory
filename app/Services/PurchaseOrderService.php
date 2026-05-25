@@ -97,6 +97,7 @@ class PurchaseOrderService
             return null;
         }
 
+        // Cek semua status — jika sudah ada invoice apapun untuk PO ini, return yang unpaid/partial
         $existing = SupplierInvoice::where('purchase_order_id', $po->id)
             ->whereIn('status', ['unpaid', 'partial'])
             ->first();
@@ -105,10 +106,36 @@ class PurchaseOrderService
             return $existing;
         }
 
+        // Jika sudah ada invoice paid pun, buat yang baru (PO bisa cicil)
+        // Tapi kalau ada invoice unpaid/partial, sudah return di atas
+
+        // Jika supplier_id kosong, cari/buat dari vendor_name
+        $supplierId = $po->supplier_id;
+        if (! $supplierId && $po->vendor_name) {
+            $supplier = \App\Models\Supplier::firstOrCreate(
+                ['name' => $po->vendor_name],
+                ['code' => 'AUTO-' . strtoupper(substr(preg_replace('/\s+/', '', $po->vendor_name), 0, 8)), 'contact_name' => $po->vendor_contact ?? '']
+            );
+            $supplierId = $supplier->id;
+            $po->update(['supplier_id' => $supplierId]);
+        }
+
+        if (! $supplierId) {
+            throw new \Exception("PO {$po->po_number} tidak memiliki supplier.");
+        }
+
+        // internal_number unik per PO — tambah suffix jika sudah ada
+        $baseInternal = 'AUTO-' . $po->po_number;
+        $internalNumber = $baseInternal;
+        $suffix = 2;
+        while (SupplierInvoice::where('internal_number', $internalNumber)->exists()) {
+            $internalNumber = $baseInternal . '-' . $suffix++;
+        }
+
         return SupplierInvoice::create([
             'invoice_number'    => $this->generateInvoiceNumber(),
-            'internal_number'   => 'AUTO-' . $po->po_number,
-            'supplier_id'       => $po->supplier_id,
+            'internal_number'   => $internalNumber,
+            'supplier_id'       => $supplierId,
             'purchase_order_id' => $po->id,
             'subtotal'          => $po->total_amount,
             'tax_amount'        => $po->ppn_amount,
@@ -327,13 +354,13 @@ class PurchaseOrderService
 
     // ─── Private: generators ──────────────────────────────────────────────────
 
-    private function generateInvoiceNumber(): string
+    public function generateInvoiceNumber(): string
     {
         $prefix = 'INV-' . now()->format('Ymd') . '-';
 
-        $last = SupplierInvoice::where('internal_number', 'like', "{$prefix}%")
+        $last = SupplierInvoice::where('invoice_number', 'like', "{$prefix}%")
             ->orderByDesc('id')
-            ->value('internal_number');
+            ->value('invoice_number');
 
         $seq = $last ? ((int) substr($last, strlen($prefix)) + 1) : 1;
 

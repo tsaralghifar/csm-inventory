@@ -218,6 +218,77 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
         Route::get('/{purchaseOrder}',         [PurchaseOrderController::class, 'show']);
         Route::post('/{purchaseOrder}/send',   [PurchaseOrderController::class, 'sendToVendor']);
         Route::post('/{purchaseOrder}/complete',[PurchaseOrderController::class, 'complete']);     // ← BARU
+        Route::post('/{purchaseOrder}/generate-invoice', function (\App\Models\PurchaseOrder $purchaseOrder) {
+            if ($purchaseOrder->payment_type !== 'kredit')
+                return response()->json(['success' => false, 'message' => 'Hanya untuk PO Kredit'], 422);
+            if ($purchaseOrder->status !== 'completed')
+                return response()->json(['success' => false, 'message' => 'PO belum selesai'], 422);
+            $invoice = app(\App\Services\PurchaseOrderService::class)->createSupplierInvoiceIfNeeded($purchaseOrder);
+            return response()->json(['success' => true, 'data' => $invoice, 'message' => 'Invoice berhasil dibuat']);
+        });
+        Route::post('/generate-missing-invoices', function () {
+            $pos = \App\Models\PurchaseOrder::where('payment_type', 'kredit')
+                ->where('status', 'completed')
+                ->with('supplierInvoices')
+                ->get();
+            $service = app(\App\Services\PurchaseOrderService::class);
+            $generated = []; $skipped = []; $errors = [];
+            foreach ($pos as $po) {
+                // Skip jika sudah ada invoice unpaid/partial
+                $hasActive = $po->supplierInvoices->whereIn('status', ['unpaid','partial'])->count() > 0;
+                if ($hasActive) { $skipped[] = $po->po_number . ' (sudah ada invoice)'; continue; }
+
+                // Jika ada invoice cancelled/paid tapi belum ada yang unpaid — buat baru
+                try {
+                    $inv = $service->createSupplierInvoiceIfNeeded($po);
+                    if ($inv) $generated[] = ['po' => $po->po_number, 'invoice' => $inv->invoice_number];
+                } catch (\Exception $e) {
+                    // Coba fallback: buat langsung dengan internal_number unik berbasis timestamp
+                    try {
+                        $supplierId = $po->supplier_id;
+                        if (!$supplierId && $po->vendor_name) {
+                            $supplier = \App\Models\Supplier::firstOrCreate(
+                                ['name' => $po->vendor_name],
+                                ['code' => 'AUTO-' . strtoupper(substr(preg_replace('/\s+/', '', $po->vendor_name), 0, 8))]
+                            );
+                            $supplierId = $supplier->id;
+                            $po->update(['supplier_id' => $supplierId]);
+                        }
+                        $internalNumber = 'AUTO-' . $po->po_number . '-' . now()->format('His');
+                        $inv = \App\Models\SupplierInvoice::create([
+                            'invoice_number'    => $service->generateInvoiceNumber(),
+                            'internal_number'   => $internalNumber,
+                            'supplier_id'       => $supplierId,
+                            'purchase_order_id' => $po->id,
+                            'subtotal'          => $po->total_amount,
+                            'tax_amount'        => $po->ppn_amount ?? 0,
+                            'total_amount'      => $po->grand_total,
+                            'paid_amount'       => 0,
+                            'remaining_amount'  => $po->grand_total,
+                            'invoice_date'      => now()->toDateString(),
+                            'due_date'          => $po->payment_due_date ?? now()->addDays(30)->toDateString(),
+                            'status'            => 'unpaid',
+                            'created_by'        => $po->created_by,
+                            'notes'             => "Auto-dibuat dari PO {$po->po_number} (kredit {$po->payment_term_days} hari)",
+                        ]);
+                        $generated[] = ['po' => $po->po_number, 'invoice' => $inv->invoice_number];
+                    } catch (\Exception $e2) {
+                        $errors[] = $po->po_number . ': ' . $e2->getMessage();
+                    }
+                }
+            }
+            $message = count($generated) > 0
+                ? count($generated) . ' invoice berhasil di-generate.'
+                : (count($errors) > 0 ? 'Gagal: ' . implode('; ', $errors) : 'Semua PO Kredit sudah memiliki invoice.');
+            return response()->json([
+                'success'   => true,
+                'generated' => $generated,
+                'skipped'   => $skipped,
+                'errors'    => $errors,
+                'count'     => count($generated),
+                'message'   => $message,
+            ]);
+        });
     });
 
     // Retur Barang
@@ -257,6 +328,7 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
     Route::post('/permintaan-material/{pm}/approve-ho',                    [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'approveHO']);
     Route::post('/permintaan-material/{pm}/submit-purchasing',             [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'submitPurchasing']);
     Route::post('/permintaan-material/{pm}/reject',                        [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'reject']);
+    Route::post('/permintaan-material/{pm}/items',                          [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'addItem']);
     Route::put('/permintaan-material/{pm}/items/{item}',                   [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'updateItem']);
     Route::delete('/permintaan-material/{pm}/items/{item}',                [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'deleteItem']);
     Route::delete('/permintaan-material/{pm}',                             [\App\Http\Controllers\Api\PermintaanMaterialController::class, 'destroy']);
@@ -397,7 +469,7 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
     Route::get('/supplier-invoices', function (Request $req) {
         if (!$req->user()->hasPermissionTo('view-accounting'))
             return response()->json(['success' => false, 'message' => 'Tidak memiliki akses'], 403);
-        $q = SupplierInvoice::with('supplier')->orderBy('invoice_date', 'desc');
+        $q = SupplierInvoice::with(['supplier', 'purchaseOrder'])->orderBy('invoice_date', 'desc');
         if ($req->supplier_id) $q->where('supplier_id', $req->supplier_id);
         if ($req->status)      $q->whereIn('status', explode(',', $req->status));
         if ($req->search)      $q->where(fn($x) => $x->where('invoice_number', 'ilike', "%{$req->search}%")->orWhere('internal_number', 'ilike', "%{$req->search}%"));

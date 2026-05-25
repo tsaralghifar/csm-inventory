@@ -96,16 +96,24 @@ class PermintaanMaterialService
                 $resolvedItemId = $itemData['item_id'] ?? null;
 
                 if (!empty($itemData['is_new_item'])) {
-                    $newItem = Item::create([
-                        'part_number' => $itemData['new_part_number'],
-                        'name'        => $itemData['nama_barang'],
-                        'category_id' => $itemData['new_category_id'],
-                        'brand'       => $itemData['new_brand'] ?? null,
-                        'unit'        => $itemData['satuan'],
-                        'min_stock'   => $itemData['new_min_stock'] ?? 0,
-                        'price'       => 0,
-                        'is_active'   => true,
-                    ]);
+                    // Guard: new_part_number wajib ada
+                    if (empty($itemData['new_part_number'])) {
+                        throw ValidationException::withMessages([
+                            "items.{$idx}.new_part_number" => "Part Number wajib diisi untuk barang baru: \"{$itemData['nama_barang']}\"",
+                        ]);
+                    }
+                    $newItem = Item::firstOrCreate(
+                        ['part_number' => $itemData['new_part_number']],
+                        [
+                            'name'        => $itemData['nama_barang'],
+                            'category_id' => $itemData['new_category_id'],
+                            'brand'       => $itemData['new_brand'] ?? null,
+                            'unit'        => $itemData['satuan'],
+                            'min_stock'   => $itemData['new_min_stock'] ?? 0,
+                            'price'       => 0,
+                            'is_active'   => true,
+                        ]
+                    );
 
                     ItemStock::firstOrCreate(
                         ['item_id' => $newItem->id, 'warehouse_id' => $validated['warehouse_id']],
