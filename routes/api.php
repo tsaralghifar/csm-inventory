@@ -235,6 +235,10 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
             $service = app(\App\Services\PurchaseOrderService::class);
             $generated = []; $skipped = []; $errors = [];
             foreach ($pos as $po) {
+                // Skip jika sudah ada invoice paid (lunas) — hindari duplikasi
+                $hasPaid = $po->supplierInvoices->where('status', 'paid')->count() > 0;
+                if ($hasPaid) { $skipped[] = $po->po_number . ' (sudah lunas)'; continue; }
+
                 // Skip jika sudah ada invoice unpaid/partial
                 $hasActive = $po->supplierInvoices->whereIn('status', ['unpaid','partial'])->count() > 0;
                 if ($hasActive) { $skipped[] = $po->po_number . ' (sudah ada invoice)'; continue; }

@@ -70,6 +70,13 @@
         <div v-if="generateResult" class="alert mx-3 mt-3 small"
           :class="generateResult.count > 0 ? 'alert-success' : (generateResult.errors?.length ? 'alert-danger' : 'alert-info')">
           <i class="bi bi-info-circle me-1"></i>{{ generateResult.message }}
+          <div v-if="generateResult.skippedPaid?.length" class="mt-1">
+            <small class="d-block text-muted fw-semibold">
+              <i class="bi bi-shield-check me-1 text-success"></i>
+              PO berikut dilewati karena invoice sudah lunas (tidak di-generate ulang):
+            </small>
+            <small v-for="s in generateResult.skippedPaid" :key="s" class="d-block text-muted ms-3">• {{ s.replace(' (sudah lunas)', '') }}</small>
+          </div>
           <div v-if="generateResult.errors?.length" class="mt-1">
             <small v-for="e in generateResult.errors" :key="e" class="d-block text-danger">• {{ e }}</small>
           </div>
@@ -477,11 +484,18 @@ async function generateMissingInvoices() {
   generateResult.value = null
   try {
     const r = await axios.post('/purchase-orders/generate-missing-invoices')
-    const { count, message, generated } = r.data
-    generateResult.value = { count, message }
+    const { count, message, generated, skipped } = r.data
+    const skippedPaid = (skipped || []).filter(s => s.includes('sudah lunas'))
+    let finalMessage = message
+    if (skippedPaid.length > 0) {
+      finalMessage += ` (${skippedPaid.length} PO dilewati karena sudah lunas)`
+    }
+    generateResult.value = { count, message: finalMessage, skippedPaid }
     if (count > 0) {
-      toast.success(message)
+      toast.success(finalMessage)
       await loadUnpaidInvoices()
+    } else if (skippedPaid.length > 0) {
+      toast.info(`Tidak ada invoice baru. ${skippedPaid.length} PO sudah lunas, tidak di-generate ulang.`)
     }
   } catch (e) {
     generateResult.value = { count: 0, message: 'Gagal: ' + (e.response?.data?.message || e.message) }
