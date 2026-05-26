@@ -130,7 +130,11 @@
             <tbody>
               <tr v-for="inv in unpaidInvoices" :key="inv.id"
                 :class="inv.is_overdue ? 'table-danger' : ''">
-                <td><code class="small text-primary fw-semibold">{{ inv.invoice_number }}</code></td>
+                <td>
+                  <code class="small text-muted d-block" style="font-size:10px;">{{ inv.internal_number }}</code>
+                  <span v-if="inv.invoice_number" class="small text-primary fw-semibold">{{ inv.invoice_number }}</span>
+                  <span v-else class="badge bg-warning text-dark" style="font-size:9px;">Belum ada no. supplier</span>
+                </td>
                 <td class="small fw-semibold">{{ inv.supplier?.name }}</td>
                 <td><code class="small text-muted">{{ inv.purchase_order?.po_number || '-' }}</code></td>
                 <td class="text-end small">{{ $formatCurrency(inv.total_amount) }}</td>
@@ -209,7 +213,11 @@
               <tr v-for="p in payments" :key="p.id">
                 <td><code class="small text-primary">{{ p.payment_number }}</code></td>
                 <td class="small fw-semibold">{{ p.supplier?.name }}</td>
-                <td><code class="small text-muted">{{ p.invoice?.invoice_number }}</code></td>
+                <td>
+                  <code class="small text-muted d-block" style="font-size:10px;">{{ p.invoice?.internal_number }}</code>
+                  <span v-if="p.invoice?.invoice_number" class="small text-primary">{{ p.invoice.invoice_number }}</span>
+                  <span v-else class="text-muted small">—</span>
+                </td>
                 <td class="small">{{ $formatDate(p.payment_date) }}</td>
                 <td>
                   <span :class="methodClass(p.payment_method)">
@@ -257,7 +265,7 @@
                 @change="onSelectInvoice">
                 <option value="">-- Pilih Invoice --</option>
                 <option v-for="inv in unpaidInvoices" :key="inv.id" :value="inv.id">
-                  {{ inv.invoice_number }} — {{ inv.supplier?.name }} — Sisa {{ $formatCurrency(inv.remaining_amount) }}
+                  {{ inv.invoice_number || inv.internal_number }} — {{ inv.supplier?.name }} — Sisa {{ $formatCurrency(inv.remaining_amount) }}
                 </option>
               </select>
             </div>
@@ -266,8 +274,11 @@
             <div v-if="selectedInvForPay" class="alert alert-info small py-2 mb-3">
               <div class="d-flex justify-content-between align-items-center">
                 <div>
-                  <strong>{{ selectedInvForPay.invoice_number }}</strong> — {{ selectedInvForPay.supplier?.name }}
-                  <span v-if="selectedInvForPay.purchase_order?.po_number" class="ms-2 text-muted">
+                  <code class="text-muted me-1" style="font-size:10px;">{{ selectedInvForPay.internal_number }}</code>
+                  <strong v-if="selectedInvForPay.invoice_number">{{ selectedInvForPay.invoice_number }}</strong>
+                  <span v-else class="badge bg-warning text-dark me-1" style="font-size:9px;">Belum ada no. supplier</span>
+                  — {{ selectedInvForPay.supplier?.name }}
+                  <span v-if="selectedInvForPay.purchase_order?.po_number" class="ms-1 text-muted">
                     ({{ selectedInvForPay.purchase_order.po_number }})
                   </span>
                 </div>
@@ -276,6 +287,21 @@
               <div class="mt-1">
                 Sisa tagihan: <strong class="text-danger">{{ $formatCurrency(selectedInvForPay.remaining_amount) }}</strong>
               </div>
+            </div>
+
+            <!-- Field no. invoice supplier — muncul hanya jika invoice belum punya nomor dari supplier -->
+            <div v-if="selectedInvForPay && !selectedInvForPay.invoice_number" class="mb-3">
+              <label class="form-label fw-semibold small">
+                <i class="bi bi-receipt me-1 text-warning"></i>
+                No. Invoice dari Supplier
+                <span class="badge bg-warning text-dark ms-1" style="font-size:9px;">Belum diisi</span>
+              </label>
+              <input
+                v-model="payForm.invoice_number_supplier"
+                class="form-control form-control-sm"
+                placeholder="Cth: INV/2026/001 — isi jika sudah terima invoice fisik (opsional)"
+              />
+              <div class="form-text">Nomor tertera pada dokumen invoice dari supplier. Bisa dikosongkan dan diisi nanti.</div>
             </div>
 
             <div class="row g-3">
@@ -345,7 +371,14 @@
             <table class="table table-sm">
               <tr><td class="text-muted">No. Pembayaran</td><td><code>{{ selectedPayment.payment_number }}</code></td></tr>
               <tr><td class="text-muted">Supplier</td><td>{{ selectedPayment.supplier?.name }}</td></tr>
-              <tr><td class="text-muted">Invoice</td><td><code>{{ selectedPayment.invoice?.invoice_number }}</code></td></tr>
+              <tr>
+                <td class="text-muted">Invoice</td>
+                <td>
+                  <code class="text-muted d-block" style="font-size:10px;">{{ selectedPayment.invoice?.internal_number }}</code>
+                  <span v-if="selectedPayment.invoice?.invoice_number" class="fw-semibold">{{ selectedPayment.invoice.invoice_number }}</span>
+                  <span v-else class="badge bg-warning text-dark" style="font-size:9px;">Belum ada no. supplier</span>
+                </td>
+              </tr>
               <tr><td class="text-muted">Tgl Bayar</td><td>{{ $formatDate(selectedPayment.payment_date) }}</td></tr>
               <tr><td class="text-muted">Metode</td><td>{{ methodLabel(selectedPayment.payment_method) }}</td></tr>
               <tr><td class="text-muted">No. Referensi</td><td>{{ selectedPayment.reference_number || '-' }}</td></tr>
@@ -397,6 +430,7 @@ const payForm = ref({
   amount: 0, payment_date: new Date().toISOString().split('T')[0],
   payment_method: 'transfer', main_cash_account_id: '',
   reference_number: '', notes: '',
+  invoice_number_supplier: '',   // opsional — no. invoice dari supplier jika belum diisi sebelumnya
 })
 
 let detailModal = null; let payModal = null
@@ -490,6 +524,7 @@ function resetPayForm() {
     amount: 0, payment_date: new Date().toISOString().split('T')[0],
     payment_method: 'transfer', main_cash_account_id: '',
     reference_number: '', notes: '',
+    invoice_number_supplier: '',
   }
   selectedInvForPay.value = null
 }
@@ -530,9 +565,21 @@ async function savePayment() {
   if (!payForm.value.payment_date) return toast.error('Tanggal pembayaran wajib diisi')
   if (selectedInvForPay.value && payForm.value.amount > selectedInvForPay.value.remaining_amount)
     return toast.error('Jumlah melebihi sisa tagihan')
+
   saving.value = true
   try {
-    await axios.post('/supplier-payments', payForm.value)
+    // Jika user mengisi nomor invoice supplier di modal ini, update dulu sebelum POST payment
+    const noSupplier = payForm.value.invoice_number_supplier?.trim()
+    if (noSupplier && selectedInvForPay.value && !selectedInvForPay.value.invoice_number) {
+      await axios.patch(
+        `/supplier-invoices/${selectedInvForPay.value.id}/invoice-number`,
+        { invoice_number: noSupplier }
+      )
+    }
+
+    // Kirim hanya field yang dibutuhkan API pembayaran (tanpa invoice_number_supplier)
+    const { invoice_number_supplier, ...payData } = payForm.value
+    await axios.post('/supplier-payments', payData)
     toast.success('Pembayaran berhasil dicatat — menunggu approval')
     payModal.hide()
     load()

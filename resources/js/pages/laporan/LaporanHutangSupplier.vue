@@ -87,7 +87,8 @@
                 <tr v-for="inv in invoices" :key="inv.id"
                   :class="inv.is_overdue ? 'table-danger' : ''">
                   <td>
-                    <div class="small fw-semibold text-primary">{{ inv.invoice_number }}</div>
+                    <div class="small fw-semibold text-primary">{{ inv.invoice_number || '—' }}</div>
+                    <div class="small text-muted" style="font-size:10px;">{{ inv.internal_number }}</div>
                   </td>
                   <td class="small fw-semibold">{{ inv.supplier }}</td>
                   <td class="small">
@@ -190,7 +191,7 @@ async function load() {
 
 function exportExcel() {
   const rows = invoices.value.map(i => ({
-    'No. Invoice': i.invoice_number, 'Supplier': i.supplier, 'Ref PO': i.po_number || '',
+    'No. Invoice': i.invoice_number || i.internal_number, 'Supplier': i.supplier, 'Ref PO': i.po_number || '',
     'Tgl Invoice': i.invoice_date, 'Jatuh Tempo': i.due_date,
     'Hari Overdue': i.days_overdue || 0, 'Total': i.total_amount,
     'Terbayar': i.paid_amount, 'Sisa': i.remaining_amount, 'Status': i.status,

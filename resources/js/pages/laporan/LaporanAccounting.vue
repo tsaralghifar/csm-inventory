@@ -94,7 +94,10 @@
                 </tr>
                 <tr v-for="inv in summary.unpaid_invoices" :key="inv.id" :class="isOverdue(inv) ? 'table-danger' : ''">
                   <td class="small fw-semibold">{{ inv.supplier?.name }}</td>
-                  <td><code class="small">{{ inv.invoice_number }}</code></td>
+                  <td>
+                    <code class="small">{{ inv.invoice_number || inv.internal_number }}</code>
+                    <div v-if="!inv.invoice_number" class="badge bg-warning text-dark" style="font-size:9px;">Belum ada no. supplier</div>
+                  </td>
                   <td class="small">{{ $formatDate(inv.invoice_date) }}</td>
                   <td class="small" :class="isOverdue(inv) ? 'text-danger fw-bold' : ''">{{ $formatDate(inv.due_date) }}</td>
                   <td class="text-end small">{{ $formatCurrency(inv.total_amount) }}</td>

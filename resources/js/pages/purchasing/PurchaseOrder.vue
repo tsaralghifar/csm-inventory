@@ -279,7 +279,11 @@
                   <thead><tr><th>No. Invoice</th><th>Tgl. Invoice</th><th>Jatuh Tempo</th><th class="text-end">Total</th><th class="text-end">Sisa</th><th>Status</th></tr></thead>
                   <tbody>
                     <tr v-for="inv in selectedPO.supplier_invoices" :key="inv.id">
-                      <td class="fw-semibold small">{{ inv.invoice_number }}</td>
+                      <td class="fw-semibold small">
+                        <span v-if="inv.invoice_number">{{ inv.invoice_number }}</span>
+                        <span v-else class="badge bg-warning text-dark" style="font-size:9px;">Belum ada no. supplier</span>
+                        <div class="text-muted" style="font-size:10px;">{{ inv.internal_number }}</div>
+                      </td>
                       <td><small>{{ $formatDate(inv.invoice_date) }}</small></td>
                       <td>
                         <small :class="inv.status !== 'paid' && new Date(inv.due_date) < new Date() ? 'text-danger fw-semibold' : ''">

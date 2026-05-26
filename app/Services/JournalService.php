@@ -100,7 +100,8 @@ class JournalService
         return DB::transaction(function () use ($payment, $userId) {
             $invoice     = $payment->invoice;
             $supplierName = $payment->supplier->name ?? 'Supplier';
-            $desc = "Pembayaran invoice {$invoice->invoice_number} ke {$supplierName}";
+            $invoiceRef = $invoice->invoice_number ?? $invoice->internal_number;
+            $desc = "Pembayaran invoice {$invoiceRef} ke {$supplierName}";
 
             $entry = JournalEntry::create([
                 'journal_number'  => JournalEntry::generateNumber(),

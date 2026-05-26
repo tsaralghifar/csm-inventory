@@ -207,7 +207,9 @@ class PurchaseOrderService
         }
 
         return SupplierInvoice::create([
-            'invoice_number'    => $this->generateInvoiceNumber(),
+            // invoice_number diisi NULL — supplier belum memberikan nomor invoice resmi.
+            // Accounting harus mengisi nomor ini setelah menerima invoice fisik dari supplier.
+            'invoice_number'    => null,
             'internal_number'   => $internalNumber,
             'supplier_id'       => $supplierId,
             'purchase_order_id' => $po->id,

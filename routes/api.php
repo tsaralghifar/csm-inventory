@@ -242,7 +242,7 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
                 // Jika ada invoice cancelled/paid tapi belum ada yang unpaid — buat baru
                 try {
                     $inv = $service->createSupplierInvoiceIfNeeded($po);
-                    if ($inv) $generated[] = ['po' => $po->po_number, 'invoice' => $inv->invoice_number];
+                    if ($inv) $generated[] = ['po' => $po->po_number, 'invoice' => $inv->internal_number];
                 } catch (\Exception $e) {
                     // Coba fallback: buat langsung dengan internal_number unik berbasis timestamp
                     try {
@@ -257,7 +257,7 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
                         }
                         $internalNumber = 'AUTO-' . $po->po_number . '-' . now()->format('His');
                         $inv = \App\Models\SupplierInvoice::create([
-                            'invoice_number'    => $service->generateInvoiceNumber(),
+                            'invoice_number'    => null, // diisi supplier setelah invoice fisik diterima
                             'internal_number'   => $internalNumber,
                             'supplier_id'       => $supplierId,
                             'purchase_order_id' => $po->id,
@@ -272,7 +272,7 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
                             'created_by'        => $po->created_by,
                             'notes'             => "Auto-dibuat dari PO {$po->po_number} (kredit {$po->payment_term_days} hari)",
                         ]);
-                        $generated[] = ['po' => $po->po_number, 'invoice' => $inv->invoice_number];
+                        $generated[] = ['po' => $po->po_number, 'invoice' => $inv->internal_number];
                     } catch (\Exception $e2) {
                         $errors[] = $po->po_number . ': ' . $e2->getMessage();
                     }
@@ -480,11 +480,22 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
     Route::post('/supplier-invoices', function (Request $req) {
         if (!$req->user()->hasPermissionTo('manage-accounting'))
             return response()->json(['success' => false, 'message' => 'Tidak memiliki akses'], 403);
-        $v = $req->validate(['invoice_number' => 'required|string|unique:supplier_invoices', 'supplier_id' => 'required|exists:suppliers,id', 'purchase_order_id' => 'nullable|exists:purchase_orders,id', 'subtotal' => 'required|numeric|min:0', 'tax_amount' => 'nullable|numeric|min:0', 'invoice_date' => 'required|date', 'due_date' => 'required|date|after_or_equal:invoice_date', 'notes' => 'nullable|string']);
+        $v = $req->validate([
+            // invoice_number = nomor dari SUPPLIER, nullable karena bisa diisi belakangan
+            'invoice_number'    => 'nullable|string|unique:supplier_invoices',
+            'supplier_id'       => 'required|exists:suppliers,id',
+            'purchase_order_id' => 'nullable|exists:purchase_orders,id',
+            'subtotal'          => 'required|numeric|min:0',
+            'tax_amount'        => 'nullable|numeric|min:0',
+            'invoice_date'      => 'required|date',
+            'due_date'          => 'required|date|after_or_equal:invoice_date',
+            'notes'             => 'nullable|string',
+        ]);
         $v['tax_amount']       = $v['tax_amount'] ?? 0;
         $v['total_amount']     = $v['subtotal'] + $v['tax_amount'];
         $v['remaining_amount'] = $v['total_amount'];
-        $v['internal_number']  = 'INV-' . date('Ymd') . '-' . strtoupper(Str::random(5));
+        // internal_number = nomor SISTEM, selalu digenerate otomatis
+        $v['internal_number']  = 'SYS-INV-' . date('Ymd') . '-' . strtoupper(Str::random(5));
         $v['created_by']       = $req->user()->id;
 
         if (!empty($v['purchase_order_id'])) {
@@ -508,6 +519,31 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
     });
     Route::get('/supplier-invoices/{invoice}', function (SupplierInvoice $invoice) {
         return response()->json(['success' => true, 'data' => $invoice->load('supplier', 'payments')]);
+    });
+
+    // PATCH /supplier-invoices/{invoice}/invoice-number
+    // Dipakai oleh accounting untuk mengisi nomor invoice resmi dari supplier
+    // setelah invoice fisik diterima. invoice_number bisa null saat auto-generate dari PO.
+    Route::patch('/supplier-invoices/{invoice}/invoice-number', function (Request $req, SupplierInvoice $invoice) {
+        if (!$req->user()->hasPermissionTo('manage-accounting'))
+            return response()->json(['success' => false, 'message' => 'Tidak memiliki akses'], 403);
+
+        if (in_array($invoice->status, ['cancelled']))
+            return response()->json(['success' => false, 'message' => 'Invoice sudah dibatalkan'], 422);
+
+        $v = $req->validate([
+            'invoice_number' => [
+                'required', 'string', 'max:100',
+                \Illuminate\Validation\Rule::unique('supplier_invoices', 'invoice_number')
+                    ->ignore($invoice->id),
+            ],
+        ]);
+
+        $invoice->update(['invoice_number' => $v['invoice_number']]);
+
+        broadcast(new \App\Events\AccountingUpdated('invoice', 'updated', $invoice->id))->toOthers();
+
+        return response()->json(['success' => true, 'data' => $invoice->fresh(), 'message' => 'No. Invoice Supplier berhasil disimpan']);
     });
 
     // Pembayaran Supplier
@@ -549,7 +585,7 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
         $invoice->update(['status' => $invoice->fresh()->remaining_amount <= 0 ? 'paid' : 'partial']);
         $payment->supplier->decrement('outstanding_balance', $payment->amount);
         if ($payment->main_cash_account_id) {
-            MainCashTransaction::create(['transaction_number' => 'MCT-' . date('Ymd') . '-' . strtoupper(Str::random(5)), 'main_cash_account_id' => $payment->main_cash_account_id, 'type' => 'out', 'amount' => $payment->amount, 'description' => "Pembayaran invoice {$invoice->invoice_number} ke {$payment->supplier->name}", 'reference_number' => $payment->payment_number, 'transaction_date' => $payment->payment_date, 'status' => 'approved', 'created_by' => $req->user()->id, 'approved_by' => $req->user()->id, 'approved_at' => now()]);
+            MainCashTransaction::create(['transaction_number' => 'MCT-' . date('Ymd') . '-' . strtoupper(Str::random(5)), 'main_cash_account_id' => $payment->main_cash_account_id, 'type' => 'out', 'amount' => $payment->amount, 'description' => "Pembayaran invoice " . ($invoice->invoice_number ?? $invoice->internal_number) . " ke {$payment->supplier->name}", 'reference_number' => $payment->payment_number, 'transaction_date' => $payment->payment_date, 'status' => 'approved', 'created_by' => $req->user()->id, 'approved_by' => $req->user()->id, 'approved_at' => now()]);
             $payment->mainCashAccount->decrement('balance', $payment->amount);
         }
         app(\App\Services\JournalService::class)->fromSupplierPayment($payment->fresh(), $req->user()->id);
@@ -908,7 +944,7 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
         if (!$req->user()->hasPermissionTo('view-accounting'))
             return response()->json(['success' => false, 'message' => 'Tidak memiliki akses'], 403);
         $invoices = SupplierInvoice::with('supplier', 'purchaseOrder')->whereIn('status', ['unpaid', 'partial'])->orderBy('due_date', 'asc')->get()
-            ->map(fn($inv) => ['id' => $inv->id, 'invoice_number' => $inv->invoice_number, 'po_number' => $inv->purchaseOrder?->po_number, 'supplier' => $inv->supplier?->name, 'invoice_date' => $inv->invoice_date, 'due_date' => $inv->due_date, 'total_amount' => $inv->total_amount, 'paid_amount' => $inv->paid_amount, 'remaining_amount' => $inv->remaining_amount, 'is_overdue' => $inv->isOverdue(), 'days_overdue' => $inv->isOverdue() ? now()->diffInDays($inv->due_date) : 0, 'status' => $inv->status]);
+            ->map(fn($inv) => ['id' => $inv->id, 'invoice_number' => $inv->invoice_number, 'internal_number' => $inv->internal_number, 'po_number' => $inv->purchaseOrder?->po_number, 'supplier' => $inv->supplier?->name, 'invoice_date' => $inv->invoice_date, 'due_date' => $inv->due_date, 'total_amount' => $inv->total_amount, 'paid_amount' => $inv->paid_amount, 'remaining_amount' => $inv->remaining_amount, 'is_overdue' => $inv->isOverdue(), 'days_overdue' => $inv->isOverdue() ? now()->diffInDays($inv->due_date) : 0, 'status' => $inv->status]);
         return response()->json(['success' => true, 'data' => ['summary' => ['total_payable' => $invoices->sum('remaining_amount'), 'total_overdue' => $invoices->where('is_overdue', true)->sum('remaining_amount'), 'invoice_count' => $invoices->count()], 'invoices' => $invoices]]);
     });
 

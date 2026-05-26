@@ -42,7 +42,7 @@
           <table class="table csm-table mb-0">
             <thead>
               <tr>
-                <th>No. Invoice</th><th>Supplier</th><th>Ref PO</th><th>Tgl Invoice</th><th>Jatuh Tempo</th>
+                <th>No. Referensi</th><th>Supplier</th><th>Ref PO</th><th>Tgl Invoice</th><th>Jatuh Tempo</th>
                 <th class="text-end">Total</th><th class="text-end">Terbayar</th><th class="text-end">Sisa</th>
                 <th>Status</th><th>Aksi</th>
               </tr>
@@ -51,8 +51,15 @@
               <tr v-if="!invoices.length"><td colspan="10" class="text-center text-muted py-4">Tidak ada data</td></tr>
               <tr v-for="inv in invoices" :key="inv.id" :class="isOverdue(inv) && inv.status !== 'paid' ? 'table-danger' : ''">
                 <td>
-                  <div class="fw-semibold small text-primary">{{ inv.invoice_number }}</div>
-                  <div class="text-muted" style="font-size:11px;">{{ inv.internal_number }}</div>
+                  <div class="fw-semibold small font-monospace text-muted">{{ inv.internal_number }}</div>
+                  <div v-if="inv.invoice_number" class="small text-primary fw-semibold">
+                    <i class="bi bi-receipt me-1"></i>{{ inv.invoice_number }}
+                  </div>
+                  <div v-else class="mt-1">
+                    <span class="badge bg-warning text-dark" style="font-size:10px;">
+                      <i class="bi bi-exclamation-triangle me-1"></i>No. Invoice Supplier belum diisi
+                    </span>
+                  </div>
                 </td>
                 <td class="small">{{ inv.supplier?.name }}</td>
                 <td class="small">
@@ -76,6 +83,10 @@
                   <div class="d-flex gap-1">
                     <button class="btn btn-xs btn-outline-info" title="Detail" @click="openDetail(inv)">
                       <i class="bi bi-eye"></i>
+                    </button>
+                    <button v-if="can('manage-accounting') && !inv.invoice_number"
+                      class="btn btn-xs btn-outline-warning" title="Isi No. Invoice Supplier" @click="openEditInvoiceNo(inv)">
+                      <i class="bi bi-pencil"></i>
                     </button>
                     <button v-if="can('manage-accounting') && inv.status !== 'paid' && inv.status !== 'cancelled'"
                       class="btn btn-xs btn-outline-success" title="Bayar" @click="openPayment(inv)">
@@ -115,8 +126,11 @@
                 </select>
               </div>
               <div class="col-md-6">
-                <label class="form-label fw-semibold small">No. Invoice Supplier <span class="text-danger">*</span></label>
-                <input v-model="form.invoice_number" class="form-control form-control-sm" placeholder="INV/2026/001" />
+                <label class="form-label fw-semibold small">
+                  No. Invoice dari Supplier
+                  <span class="text-muted fw-normal">(opsional — bisa diisi setelah terima invoice fisik)</span>
+                </label>
+                <input v-model="form.invoice_number" class="form-control form-control-sm" placeholder="Cth: INV/2026/001 atau kosongkan dulu" />
               </div>
 
               <!-- PO Dropdown — auto-pull data -->
@@ -207,7 +221,7 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content" v-if="selectedInvoice">
           <div class="modal-header">
-            <h5 class="modal-title">Detail Invoice — {{ selectedInvoice.invoice_number }}</h5>
+            <h5 class="modal-title">Detail Invoice — {{ selectedInvoice.internal_number }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
@@ -255,7 +269,7 @@
           </div>
           <div class="modal-body">
             <div class="alert alert-info small py-2">
-              <strong>{{ selectedInvoice.invoice_number }}</strong> — {{ selectedInvoice.supplier?.name }}<br>
+              <strong>{{ selectedInvoice.invoice_number || selectedInvoice.internal_number }}</strong> — {{ selectedInvoice.supplier?.name }}<br>
               Sisa tagihan: <strong class="text-danger">{{ $formatCurrency(selectedInvoice.remaining_amount) }}</strong>
             </div>
             <div class="row g-3">
@@ -304,6 +318,39 @@
               <i class="bi bi-cash-coin me-1" v-else></i>Simpan Pembayaran
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Edit No. Invoice Supplier -->
+  <div class="modal fade" id="editInvoiceNoModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-content" v-if="editInvTarget">
+        <div class="modal-header py-2" style="background:#1a3a5c;">
+          <h6 class="modal-title text-white"><i class="bi bi-pencil me-2"></i>Isi No. Invoice Supplier</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="small text-muted mb-2">
+            Ref internal: <code>{{ editInvTarget.internal_number }}</code>
+          </div>
+          <label class="form-label form-label-sm fw-semibold">No. Invoice dari Supplier <span class="text-danger">*</span></label>
+          <input
+            v-model="editInvNo"
+            class="form-control form-control-sm"
+            placeholder="Cth: INV/2026/001"
+            @keyup.enter="saveInvoiceNo"
+            autofocus
+          />
+          <div class="form-text">Nomor ini tertera pada dokumen invoice fisik dari supplier.</div>
+        </div>
+        <div class="modal-footer py-2">
+          <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+          <button class="btn btn-warning btn-sm" @click="saveInvoiceNo" :disabled="saving || !editInvNo?.trim()">
+            <span v-if="saving"><span class="csm-spinner me-1"></span></span>
+            <i class="bi bi-save me-1" v-else></i>Simpan
+          </button>
         </div>
       </div>
     </div>
@@ -399,13 +446,45 @@ function openPayment(inv) {
 }
 
 async function save() {
-  if (!form.value.supplier_id || !form.value.invoice_number || !form.value.invoice_date || !form.value.due_date) {
-    toast.warning('Lengkapi data wajib: Supplier, No. Invoice, Tgl Invoice, Jatuh Tempo'); return
+  if (!form.value.supplier_id || !form.value.invoice_date || !form.value.due_date) {
+    toast.warning('Lengkapi data wajib: Supplier, Tgl Invoice, Jatuh Tempo'); return
   }
   saving.value = true
   try { await axios.post('/supplier-invoices', form.value); toast.success('Invoice berhasil disimpan'); modal.hide(); load() }
   catch(e) { toast.error(e.response?.data?.message || 'Gagal menyimpan') } finally { saving.value = false }
 }
+// ─── Edit No. Invoice Supplier ───────────────────────────────────────────────
+
+const editInvTarget = ref(null)
+const editInvNo     = ref('')
+let editInvNoModal  = null
+
+function openEditInvoiceNo(inv) {
+  editInvTarget.value = inv
+  editInvNo.value     = inv.invoice_number || ''
+  if (!editInvNoModal) {
+    editInvNoModal = new Modal(document.getElementById('editInvoiceNoModal'))
+  }
+  editInvNoModal.show()
+}
+
+async function saveInvoiceNo() {
+  if (!editInvNo.value?.trim()) return toast.warning('No. Invoice wajib diisi')
+  saving.value = true
+  try {
+    await axios.patch(`/supplier-invoices/${editInvTarget.value.id}/invoice-number`, {
+      invoice_number: editInvNo.value.trim(),
+    })
+    toast.success('No. Invoice Supplier berhasil disimpan')
+    editInvNoModal.hide()
+    load()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Gagal menyimpan')
+  } finally {
+    saving.value = false
+  }
+}
+
 async function savePayment() {
   if (selectedInvoice.value.status === 'paid')
     return toast.error('Invoice ini sudah lunas')

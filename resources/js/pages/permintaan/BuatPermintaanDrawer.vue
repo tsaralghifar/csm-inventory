@@ -197,7 +197,7 @@
                           :readonly="!!item.item_id"
                           @input="item._showDropdown = true"
                           @focus="item._showDropdown = true"
-                          @blur="() => window.setTimeout(() => { item._showDropdown = false }, 200)"
+                          @blur="() => hideSearchDrop(item)"
                         />
                         <button v-if="item._searchStok" type="button"
                           class="btn btn-outline-secondary btn-sm"
@@ -698,6 +698,7 @@ function filterUnitsForItem(item) {
         u.brand?.toLowerCase().includes(q)
       ).slice(0, 15)
 }
+function hideSearchDrop(item) { setTimeout(() => { item._showDropdown = false }, 200) }
 function hideUnitDrop(item) { setTimeout(() => { item._showUnitDrop = false }, 150) }
 
 function isUnitAlreadyAdded(item, u) {

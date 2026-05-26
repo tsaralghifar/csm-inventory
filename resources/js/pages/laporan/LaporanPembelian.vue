@@ -298,7 +298,7 @@
                       <td colspan="2">
                         <div class="d-flex align-items-center gap-2 ps-3">
                           <span class="badge bg-warning text-dark" style="font-size:.6rem;">Invoice</span>
-                          <span class="small fw-semibold text-warning-emphasis">{{ inv.invoice_number }}</span>
+                          <span class="small fw-semibold text-warning-emphasis">{{ inv.invoice_number || inv.internal_number }}</span>
                         </div>
                       </td>
                       <td></td>
