@@ -217,7 +217,8 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
         // ── Route dengan parameter ────────────────────────────────────────
         Route::get('/{purchaseOrder}',         [PurchaseOrderController::class, 'show']);
         Route::post('/{purchaseOrder}/send',   [PurchaseOrderController::class, 'sendToVendor']);
-        Route::post('/{purchaseOrder}/complete',[PurchaseOrderController::class, 'complete']);     // ← BARU
+        Route::post('/{purchaseOrder}/complete',[PurchaseOrderController::class, 'complete']);
+        Route::patch('/{purchaseOrder}/items/{poItem}/update-part-number', [PurchaseOrderController::class, 'updatePartNumber']);
         Route::post('/{purchaseOrder}/generate-invoice', function (\App\Models\PurchaseOrder $purchaseOrder) {
             if ($purchaseOrder->payment_type !== 'kredit')
                 return response()->json(['success' => false, 'message' => 'Hanya untuk PO Kredit'], 422);

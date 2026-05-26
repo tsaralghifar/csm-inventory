@@ -307,6 +307,22 @@ class PermintaanMaterialController extends Controller
             'keterangan'   => 'nullable|string',
         ]);
 
+        // Cek duplikat part_number dalam PM yang sama, kecuali item yang sedang diedit
+        $newPartNumber = $validated['part_number'] ?? null;
+        if ($newPartNumber) {
+            $isDuplicate = $pm->items()
+                ->where('part_number', $newPartNumber)
+                ->where('id', '!=', $item->id)
+                ->exists();
+
+            if ($isDuplicate) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Part Number \"{$newPartNumber}\" sudah ada di daftar PM ini. Tidak bisa menyimpan perubahan dengan Part Number yang sama.",
+                ], 422);
+            }
+        }
+
         $item->update($validated);
 
         // Sync perubahan nama & part_number ke master barang jika item berasal dari master

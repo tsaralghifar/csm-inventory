@@ -164,6 +164,7 @@ class RolePermissionSeeder extends Seeder
                 'view-stocks', 'create-stock-in',
                 'view-items',
                 'view-mr',
+                'view-pm',       // Dibutuhkan untuk melihat PM terkait saat koreksi part number
                 'view-po', 'create-po', 'manage-po',
                 'view-bon',
                 'view-sj', 'create-sj', 'receive-sj',

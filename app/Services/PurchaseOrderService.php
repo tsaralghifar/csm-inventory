@@ -2,8 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\Item;
 use App\Models\MaterialRequest;
+use App\Models\PartNumberChangeLog;
 use App\Models\PermintaanMaterial;
+use App\Models\PermintaanMaterialItem;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\SupplierInvoice;
@@ -85,6 +88,77 @@ class PurchaseOrderService
             }
 
             return $po->fresh();
+        });
+    }
+
+    /**
+     * Koreksi part number sebuah item di PO.
+     *
+     * Aturan:
+     *  - Status draft        → bebas, notes opsional.
+     *  - Status >= sent_to_vendor → field notes WAJIB diisi.
+     *  - update_master = true → part_number di tabel items ikut diperbarui.
+     */
+    public function updatePartNumber(
+        PurchaseOrder     $po,
+        PurchaseOrderItem $poItem,
+        array             $data,
+        int               $userId,
+    ): PurchaseOrderItem {
+        // Notes wajib jika PO sudah dikirim ke vendor
+        $requiresNotes = $po->status !== PurchaseOrder::STATUS_DRAFT;
+
+        if ($requiresNotes && empty($data['notes'])) {
+            throw ValidationException::withMessages([
+                'notes' => 'Catatan alasan perubahan wajib diisi karena PO sudah dikirim ke vendor.',
+            ]);
+        }
+
+        $newPartNumber = trim($data['new_part_number']);
+        $updateMaster  = (bool) ($data['update_master'] ?? false);
+        $oldPartNumber = $poItem->part_number;
+
+        // Tidak ada perubahan — bail out lebih awal
+        if ($oldPartNumber === $newPartNumber) {
+            return $poItem;
+        }
+
+        return DB::transaction(function () use (
+            $po, $poItem, $newPartNumber, $updateMaster,
+            $oldPartNumber, $data, $userId
+        ) {
+            // 1. Update purchase_order_items
+            $poItem->update(['part_number' => $newPartNumber]);
+
+            // 2. Update permintaan_material_items yang terkait
+            $pmItemId = $poItem->permintaan_material_item_id;
+
+            if ($pmItemId) {
+                PermintaanMaterialItem::where('id', $pmItemId)
+                    ->update(['part_number' => $newPartNumber]);
+            }
+
+            // 3. Update master barang (opsional berdasarkan flag)
+            if ($updateMaster && $poItem->item_id) {
+                Item::where('id', $poItem->item_id)
+                    ->update(['part_number' => $newPartNumber]);
+            }
+
+            // 4. Catat audit log
+            PartNumberChangeLog::create([
+                'purchase_order_item_id'      => $poItem->id,
+                'purchase_order_id'           => $po->id,
+                'permintaan_material_item_id' => $pmItemId,
+                'item_id'                     => $updateMaster ? $poItem->item_id : null,
+                'old_part_number'             => $oldPartNumber,
+                'new_part_number'             => $newPartNumber,
+                'po_status_at_change'         => $po->status,
+                'update_master'               => $updateMaster,
+                'notes'                       => $data['notes'] ?? null,
+                'changed_by'                  => $userId,
+            ]);
+
+            return $poItem->fresh();
         });
     }
 

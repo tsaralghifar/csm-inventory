@@ -116,6 +116,7 @@ function groupLabel(g) {
     sj:'Surat Jalan / Tanda Terima Pembelian', transfer:'Transfer Barang', retur:'Retur Barang',
     bon:'Bon Pengeluaran', po:'Purchase Order', pm:'Permintaan Material',
     accounting:'Accounting', payroll:'Payroll',
+    audit:'Audit & Keamanan',
     other:'Lainnya'
   }
   return m[g] || g
@@ -128,7 +129,7 @@ function permLabel(p) {
     'view-warehouses':'Lihat Gudang', 'manage-warehouses':'Kelola Gudang',
     'view-mr':'Lihat MR', 'create-mr':'Buat MR', 'approve-mr':'Approve MR (Admin)', 'dispatch-mr':'Kirim Barang (DO)',
     'authorize-mr-chief':'Otorisasi MR (Chief)', 'approve-mr-manager':'Approve MR (Manager)', 'approve-mr-ho':'Approve MR (HO)',
-    'view-po':'Lihat PO', 'create-po':'Buat PO', 'manage-po':'Kelola PO',
+    'view-po':'Lihat PO', 'create-po':'Buat PO', 'manage-po':'Kelola PO (termasuk koreksi Part Number)',
     'view-bon':'Lihat Bon Pengeluaran', 'create-bon':'Buat Bon', 'issue-bon':'Keluarkan Bon',
     'view-sj':'Lihat Surat Jalan', 'create-sj':'Buat Surat Jalan (dari PO)', 'receive-sj':'Konfirmasi Terima Barang (dari SJ)',
     'view-transfer':'Lihat Transfer Barang', 'create-transfer':'Buat Transfer Barang',
@@ -146,6 +147,7 @@ function permLabel(p) {
     'view-employees':'Lihat Karyawan', 'manage-employees':'Kelola Karyawan',
     'view-accounting':'Lihat Accounting', 'manage-accounting':'Kelola Accounting', 'approve-accounting':'Approve Transaksi Accounting',
     'view-payroll':'Lihat Payroll', 'manage-payroll':'Kelola Payroll', 'approve-payroll':'Approve & Bayar Payroll',
+    'view-audit-log':'Lihat Audit Log',
   }
   return m[p] || p
 }

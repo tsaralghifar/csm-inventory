@@ -308,8 +308,19 @@
                   <tr v-for="(item, idx) in selectedPO.items" :key="item.id">
                     <td class="text-muted">{{ idx+1 }}</td>
                     <td>
-                      <code v-if="item.item?.part_number" class="small text-primary fw-semibold">{{ item.item.part_number }}</code>
-                      <span v-else class="text-muted small">-</span>
+                      <span class="d-inline-flex align-items-center gap-1">
+                        <code
+                          v-if="item.part_number || item.item?.part_number"
+                          class="small text-primary fw-semibold"
+                        >{{ item.part_number || item.item?.part_number }}</code>
+                        <span v-else class="text-muted small">-</span>
+                        <PartNumberEditButton
+                          :po="selectedPO"
+                          :item="item"
+                          :can-edit="can('manage-po')"
+                          @updated="onPartNumberUpdated"
+                        />
+                      </span>
                     </td>
                     <td class="fw-semibold">{{ item.nama_barang }}</td>
                     <td><code class="small text-secondary">{{ item.kode_unit || '-' }}</code></td>
@@ -750,6 +761,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Modal } from 'bootstrap'
 import axios from 'axios'
+import PartNumberEditButton from '@/components/PartNumberEditButton.vue'
 import { useToast } from 'vue-toastification'
 import { exportPOExcel } from '@/utils/excelExport'
 
@@ -986,6 +998,14 @@ async function openDetail(po) {
     new Modal('#modalDetailPO').show()
   } catch {
     toast.error('Gagal memuat detail PO')
+  }
+}
+
+function onPartNumberUpdated(updatedItem) {
+  if (!selectedPO.value) return
+  const idx = selectedPO.value.items.findIndex(i => i.id === updatedItem.id)
+  if (idx !== -1) {
+    selectedPO.value.items[idx] = { ...selectedPO.value.items[idx], ...updatedItem }
   }
 }
 

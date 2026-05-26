@@ -1399,6 +1399,19 @@ async function saveEditItem() {
   if (!editItemForm.value.nama_barang) return toast.error('Nama barang wajib diisi')
   if (!editItemForm.value.qty || editItemForm.value.qty <= 0) return toast.error('Jumlah harus lebih dari 0')
   if (!editItemForm.value.satuan) return toast.error('Satuan wajib diisi')
+
+  // Cek duplikat part_number: pastikan tidak ada item LAIN di PM ini dengan part_number yang sama
+  const newPN = (editItemForm.value.part_number || '').trim().toLowerCase()
+  if (newPN) {
+    const duplicate = (pm.value.items || []).find(i =>
+      i.id !== editItemForm.value.id &&
+      (i.part_number || '').trim().toLowerCase() === newPN
+    )
+    if (duplicate) {
+      return toast.error(`Part Number "${newPN.toUpperCase()}" sudah ada di daftar PM ini. Tidak bisa menyimpan perubahan dengan Part Number yang sama.`)
+    }
+  }
+
   saving.value = true
   try {
     await axios.put(`/permintaan-material/${pm.value.id}/items/${editItemForm.value.id}`, editItemForm.value)
