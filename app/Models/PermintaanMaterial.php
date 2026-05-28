@@ -111,12 +111,12 @@ class PermintaanMaterial extends Model
     // ── Static Helpers ───────────────────────────────────────
 
     /**
-     * Generate nomor PM unik: PM-YYYYMMDD-XXXX
+     * Generate nomor MR unik: MR-YYYYMMDD-XXXX
      * Dipanggil di dalam DB::transaction agar sequence aman.
      */
     public static function generateNomor(): string
     {
-        $prefix = 'PM-' . now()->format('Ymd') . '-';
+        $prefix = 'MR-' . now()->format('Ymd') . '-';
 
         $last = static::lockForUpdate()
             ->where('nomor', 'like', "{$prefix}%")

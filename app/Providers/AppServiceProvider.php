@@ -10,6 +10,7 @@ use App\Observers\ItemObserver;
 use App\Observers\PurchaseOrderObserver;
 use App\Observers\StokOpnameObserver;
 use App\Observers\UserObserver;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -22,6 +23,13 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // ─── Cegah N+1: throw exception saat lazy loading terjadi di local ────
+        // Ini akan mendeteksi relasi yang belum di-eager load secara otomatis.
+        // Hapus atau komentari baris ini sebelum deploy ke production.
+        if (app()->environment('local')) {
+            Model::preventLazyLoading();
+        }
+
         // Super User bypass semua permission
         Gate::before(function ($user, $ability) {
             if ($user->isSuperuser()) {

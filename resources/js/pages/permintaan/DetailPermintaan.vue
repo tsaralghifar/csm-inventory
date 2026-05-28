@@ -35,7 +35,7 @@
             <div class="csm-card-body">
               <table class="table table-sm table-borderless mb-0 small">
                 <tbody>
-                <tr><td class="text-muted" width="40%">No. PM</td><td class="fw-semibold">{{ pm.nomor }}</td></tr>
+                <tr><td class="text-muted" width="40%">No. MR</td><td class="fw-semibold">{{ pm.nomor }}</td></tr>
                 <tr><td class="text-muted">Tipe</td>
                   <td>
                     <span class="badge" :class="pm.type === 'part' ? 'bg-primary' : 'bg-info text-dark'">
@@ -1913,7 +1913,7 @@ function buildHTML(data) {
   <div class="ig">
     <div class="is">
       <div class="it">Informasi Permintaan</div>
-      <div class="ir"><span class="il">No. PM</span><span class="iv hi">${data.nomor}</span></div>
+      <div class="ir"><span class="il">No. MR</span><span class="iv hi">${data.nomor}</span></div>
       <div class="ir"><span class="il">Gudang / Site</span><span class="iv hi">${data.warehouse?.name || '-'}</span></div>
       <div class="ir"><span class="il">Diajukan Oleh</span><span class="iv">${data.requester?.name || '-'}</span></div>
       <div class="ir"><span class="il">Tanggal Dibuat</span><span class="iv">${fmtD(data.created_at)}</span></div>
@@ -1972,10 +1972,10 @@ function exportExcel() {
   })
   .then(blob => {
     const burl = URL.createObjectURL(blob)
-    const a = Object.assign(document.createElement('a'), { href: burl, download: `PM-${pm.value.nomor}.xlsx` })
+    const a = Object.assign(document.createElement('a'), { href: burl, download: `MR-${pm.value.nomor}.xlsx` })
     document.body.appendChild(a); a.click()
     document.body.removeChild(a); URL.revokeObjectURL(burl)
-    toast.success(`✅ PM-${pm.value.nomor}.xlsx berhasil diunduh`)
+    toast.success(`✅ MR-${pm.value.nomor}.xlsx berhasil diunduh`)
   })
   .catch(() => toast.error('Gagal mengunduh Excel'))
 }

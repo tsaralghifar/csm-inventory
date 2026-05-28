@@ -13,11 +13,16 @@ use App\Models\SupplierInvoice;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class PurchaseOrderService
 {
+    // TTL cache summary PO: 5 menit
+    private const CACHE_SUMMARY_TTL = 300;
+    private const CACHE_SUMMARY_KEY = 'po.summary';
+
     // ─── Query / List ─────────────────────────────────────────────────────────
 
     public function list(Request $request): LengthAwarePaginator
@@ -31,14 +36,20 @@ class PurchaseOrderService
         return $query->paginate($request->integer('per_page', 15));
     }
 
+    /**
+     * Summary card (jumlah PO cash, kredit, overdue, near-due).
+     * Di-cache 5 menit karena ini cukup sering dipanggil di halaman list.
+     */
     public function summary(): array
     {
-        return [
-            'cash_count'     => PurchaseOrder::cash()->whereNotIn('status', [PurchaseOrder::STATUS_CANCELLED])->count(),
-            'kredit_count'   => PurchaseOrder::kredit()->whereNotIn('status', [PurchaseOrder::STATUS_CANCELLED])->count(),
-            'overdue_count'  => PurchaseOrder::overdue()->count(),
-            'near_due_count' => PurchaseOrder::nearDue(7)->count(),
-        ];
+        return Cache::remember(self::CACHE_SUMMARY_KEY, self::CACHE_SUMMARY_TTL, function () {
+            return [
+                'cash_count'     => PurchaseOrder::cash()->whereNotIn('status', [PurchaseOrder::STATUS_CANCELLED])->count(),
+                'kredit_count'   => PurchaseOrder::kredit()->whereNotIn('status', [PurchaseOrder::STATUS_CANCELLED])->count(),
+                'overdue_count'  => PurchaseOrder::overdue()->count(),
+                'near_due_count' => PurchaseOrder::nearDue(7)->count(),
+            ];
+        });
     }
 
     // ─── Mutations ────────────────────────────────────────────────────────────
@@ -52,7 +63,7 @@ class PurchaseOrderService
         $this->guardMrStatus($validated);
         $this->guardPaymentType($validated);
 
-        return DB::transaction(function () use ($validated, $userId, $pmIds) {
+        $po = DB::transaction(function () use ($validated, $userId, $pmIds) {
             $po = $this->buildPO($validated, $userId, $pmIds);
 
             $this->attachItems($po, $validated['items']);
@@ -62,6 +73,10 @@ class PurchaseOrderService
 
             return $po->load('items', 'warehouse', 'creator', 'materialRequest', 'permintaanMaterials', 'supplier');
         });
+
+        $this->invalidateSummaryCache();
+
+        return $po;
     }
 
     public function sendToVendor(PurchaseOrder $po): PurchaseOrder
@@ -71,13 +86,14 @@ class PurchaseOrderService
         }
 
         $po->update(['status' => PurchaseOrder::STATUS_SENT_TO_VENDOR]);
+        $this->invalidateSummaryCache();
 
         return $po->fresh();
     }
 
     public function markComplete(PurchaseOrder $po): PurchaseOrder
     {
-        return DB::transaction(function () use ($po) {
+        $po = DB::transaction(function () use ($po) {
             $po->update([
                 'status'          => PurchaseOrder::STATUS_COMPLETED,
                 'delivery_status' => PurchaseOrder::STATUS_COMPLETED,
@@ -89,6 +105,10 @@ class PurchaseOrderService
 
             return $po->fresh();
         });
+
+        $this->invalidateSummaryCache();
+
+        return $po;
     }
 
     /**
@@ -180,9 +200,6 @@ class PurchaseOrderService
             return $existing;
         }
 
-        // Jika sudah ada invoice paid pun, buat yang baru (PO bisa cicil)
-        // Tapi kalau ada invoice unpaid/partial, sudah return di atas
-
         // Jika supplier_id kosong, cari/buat dari vendor_name
         $supplierId = $po->supplier_id;
         if (! $supplierId && $po->vendor_name) {
@@ -199,9 +216,9 @@ class PurchaseOrderService
         }
 
         // internal_number unik per PO — tambah suffix jika sudah ada
-        $baseInternal = 'AUTO-' . $po->po_number;
+        $baseInternal   = 'AUTO-' . $po->po_number;
         $internalNumber = $baseInternal;
-        $suffix = 2;
+        $suffix         = 2;
         while (SupplierInvoice::where('internal_number', $internalNumber)->exists()) {
             $internalNumber = $baseInternal . '-' . $suffix++;
         }
@@ -224,6 +241,17 @@ class PurchaseOrderService
             'created_by'        => $po->created_by,
             'notes'             => "Auto-dibuat dari PO {$po->po_number} (kredit {$po->payment_term_days} hari)",
         ]);
+    }
+
+    // ─── Cache helpers ────────────────────────────────────────────────────────
+
+    /**
+     * Invalidate cache summary PO.
+     * Dipanggil setiap kali status PO berubah (create, send, complete, cancel).
+     */
+    public function invalidateSummaryCache(): void
+    {
+        Cache::forget(self::CACHE_SUMMARY_KEY);
     }
 
     // ─── Private: filters ─────────────────────────────────────────────────────
@@ -401,9 +429,9 @@ class PurchaseOrderService
 
     private function calculateTotals(float $subtotal, float $diskonPct, float $ppnPct): array
     {
-        $diskon     = round($subtotal * $diskonPct / 100, 2);
-        $afterDisk  = $subtotal - $diskon;
-        $ppn        = round($afterDisk * $ppnPct / 100, 2);
+        $diskon    = round($subtotal * $diskonPct / 100, 2);
+        $afterDisk = $subtotal - $diskon;
+        $ppn       = round($afterDisk * $ppnPct / 100, 2);
 
         return [$diskon, $afterDisk, $ppn, $afterDisk + $ppn];
     }

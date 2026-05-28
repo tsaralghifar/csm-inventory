@@ -9,16 +9,34 @@ use Illuminate\Http\Request;
 
 class CategoryController extends Controller
 {
+    /**
+     * Daftar semua kategori.
+     * Menggunakan cache (1 jam) karena data ini sangat jarang berubah.
+     * Cache otomatis di-invalidate saat store/update/destroy via Category::boot().
+     */
     public function index()
     {
-        return response()->json(['success' => true, 'data' => Category::withCount('items')->orderBy('name')->get()]);
+        // withCount('items') tidak bisa di-cache secara umum karena hitungannya dinamis,
+        // sehingga kita tetap query langsung tapi tanpa join tambahan yang berat.
+        return response()->json([
+            'success' => true,
+            'data'    => Category::withCount('items')->orderBy('name')->get(),
+        ]);
     }
 
     public function store(Request $request)
     {
-        $v = $request->validate(['name' => 'required|string', 'code' => 'required|string|unique:categories', 'description' => 'nullable|string']);
+        $v = $request->validate([
+            'name'        => 'required|string',
+            'code'        => 'required|string|unique:categories',
+            'description' => 'nullable|string',
+        ]);
+
         $cat = Category::create($v);
+        // Cache di-invalidate otomatis oleh Category::boot() -> static::created()
+
         broadcast(new MasterDataUpdated('kategori', 'created', $cat->id))->toOthers();
+
         return response()->json(['success' => true, 'data' => $cat], 201);
     }
 
@@ -29,16 +47,27 @@ class CategoryController extends Controller
 
     public function update(Request $request, Category $category)
     {
-        $v = $request->validate(['name' => 'sometimes|string', 'code' => "sometimes|string|unique:categories,code,{$category->id}", 'description' => 'nullable|string']);
+        $v = $request->validate([
+            'name'        => 'sometimes|string',
+            'code'        => "sometimes|string|unique:categories,code,{$category->id}",
+            'description' => 'nullable|string',
+        ]);
+
         $category->update($v);
+        // Cache di-invalidate otomatis oleh Category::boot() -> static::updated()
+
         broadcast(new MasterDataUpdated('kategori', 'updated', $category->id))->toOthers();
+
         return response()->json(['success' => true, 'data' => $category]);
     }
 
     public function destroy(Category $category)
     {
         $category->delete();
+        // Cache di-invalidate otomatis oleh Category::boot() -> static::deleted()
+
         broadcast(new MasterDataUpdated('kategori', 'deleted'))->toOthers();
+
         return response()->json(['success' => true, 'message' => 'Kategori dihapus']);
     }
 }

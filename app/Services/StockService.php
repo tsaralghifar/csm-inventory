@@ -61,15 +61,15 @@ class StockService
             // ── Buat FIFO Layer untuk setiap barang masuk ────────────────────
             if ($newPrice > 0 || $qty > 0) {
                 StockLayer::create([
-                    'item_id'      => $data['item_id'],
-                    'warehouse_id' => $data['warehouse_id'],
-                    'qty_awal'     => $qty,
-                    'qty_sisa'     => $qty,
-                    'harga_satuan' => $newPrice,
-                    'tanggal_masuk'=> $data['movement_date'] ?? today(),
-                    'source_type'  => $data['source_type'] ?? 'po',
-                    'reference_no' => $data['po_number'] ?? ($data['reference_no'] ?? null),
-                    'created_by'   => $userId,
+                    'item_id'       => $data['item_id'],
+                    'warehouse_id'  => $data['warehouse_id'],
+                    'qty_awal'      => $qty,
+                    'qty_sisa'      => $qty,
+                    'harga_satuan'  => $newPrice,
+                    'tanggal_masuk' => $data['movement_date'] ?? today(),
+                    'source_type'   => $data['source_type'] ?? 'po',
+                    'reference_no'  => $data['po_number'] ?? ($data['reference_no'] ?? null),
+                    'created_by'    => $userId,
                 ]);
             }
 
@@ -77,30 +77,36 @@ class StockService
             $this->lowStockAlert->checkAndAlert($data['warehouse_id'], $data['item_id']);
 
             return $this->createMovement([
-                'type'           => 'in',
-                'item_id'        => $data['item_id'],
+                'type'            => 'in',
+                'item_id'         => $data['item_id'],
                 'to_warehouse_id' => $data['warehouse_id'],
-                'qty'            => $qty,
-                'qty_before'     => $qtyBefore,
-                'qty_after'      => $itemStock->qty,
-                'price'          => $data['price'] ?? 0,
-                'po_number'      => $data['po_number'] ?? null,
-                'invoice_number' => $data['invoice_number'] ?? null,
-                'notes'          => $data['notes'] ?? null,
-                'movement_date'  => $data['movement_date'] ?? today(),
+                'qty'             => $qty,
+                'qty_before'      => $qtyBefore,
+                'qty_after'       => $itemStock->qty,
+                'price'           => $data['price'] ?? 0,
+                'po_number'       => $data['po_number'] ?? null,
+                'invoice_number'  => $data['invoice_number'] ?? null,
+                'notes'           => $data['notes'] ?? null,
+                'movement_date'   => $data['movement_date'] ?? today(),
             ], $userId);
         });
     }
 
     /**
-     * Remove stock from warehouse (direct stock out)
+     * Remove stock from warehouse (direct stock out) dengan FIFO layer consume.
+     *
+     * Digunakan oleh: APD Karyawan, pengeluaran manual, dan jalur lain
+     * yang tidak melalui BonPengeluaranService.
+     *
+     * FIFO layer di-consume satu per satu dari yang paling lama masuk,
+     * sehingga kolom QTY LAYER di Laporan Stok selalu akurat.
      */
     public function stockOut(array $data, int $userId): StockMovement
     {
         return DB::transaction(function () use ($data, $userId) {
             $itemStock = $this->getOrCreateStock($data['item_id'], $data['warehouse_id']);
             $qtyBefore = (float) $itemStock->qty;
-            $qty = (float) $data['qty'];
+            $qty       = (float) $data['qty'];
 
             if ($qtyBefore < $qty) {
                 throw ValidationException::withMessages([
@@ -108,36 +114,50 @@ class StockService
                 ]);
             }
 
-            $itemStock->qty = $qtyBefore - $qty;
+            // ── Consume FIFO layers ───────────────────────────────────────────
+            // Logika yang sama dengan BonPengeluaranService::issueStock()
+            // agar qty_sisa di stock_layers selalu mencerminkan sisa aktual.
+            $fifoPrice = $this->consumeFifoLayers(
+                itemId:      $data['item_id'],
+                warehouseId: $data['warehouse_id'],
+                qty:         $qty,
+                stock:       $itemStock,
+            );
+
+            // ── Update item_stocks.qty ────────────────────────────────────────
+            $itemStock->qty          = $qtyBefore - $qty;
             $itemStock->last_updated = now();
             $itemStock->save();
 
-            // ── Low stock check ──────────────────────────────────────────────
+            // ── Low stock check ───────────────────────────────────────────────
             $this->lowStockAlert->checkAndAlert($data['warehouse_id'], $data['item_id']);
 
             return $this->createMovement([
-                'type'             => 'out',
-                'item_id'          => $data['item_id'],
+                'type'              => 'out',
+                'item_id'           => $data['item_id'],
                 'from_warehouse_id' => $data['warehouse_id'],
-                'qty'              => $qty,
-                'qty_before'       => $qtyBefore,
-                'qty_after'        => $itemStock->qty,
-                'unit_code'        => $data['unit_code'] ?? null,
-                'unit_type'        => $data['unit_type'] ?? null,
-                'hm_km'            => $data['hm_km'] ?? null,
-                'po_number'        => $data['po_number'] ?? null,
-                'mechanic'         => $data['mechanic'] ?? null,
-                'site_name'        => $data['site_name'] ?? null,
-                'notes'            => $data['notes'] ?? null,
-                'movement_date'    => $data['movement_date'] ?? today(),
-                'moveable_type'    => $data['moveable_type'] ?? 'manual',
-                'moveable_id'      => $data['moveable_id'] ?? 0,
+                'qty'               => $qty,
+                'qty_before'        => $qtyBefore,
+                'qty_after'         => $itemStock->qty,
+                'price'             => $fifoPrice,
+                'fifo_price'        => $fifoPrice,
+                'unit_code'         => $data['unit_code']  ?? null,
+                'unit_type'         => $data['unit_type']  ?? null,
+                'hm_km'             => $data['hm_km']      ?? null,
+                'po_number'         => $data['po_number']  ?? null,
+                'mechanic'          => $data['mechanic']   ?? null,
+                'site_name'         => $data['site_name']  ?? null,
+                'notes'             => $data['notes']      ?? null,
+                'movement_date'     => $data['movement_date'] ?? today(),
+                'moveable_type'     => $data['moveable_type'] ?? 'manual',
+                'moveable_id'       => $data['moveable_id']   ?? 0,
             ], $userId);
         });
     }
 
     /**
-     * Transfer stock from one warehouse to another
+     * Transfer stock from one warehouse to another.
+     * FIFO layer pada gudang asal juga di-consume.
      */
     public function transfer(array $data, int $userId): array
     {
@@ -152,6 +172,14 @@ class StockService
                     'qty' => "Stok tidak cukup. Stok tersedia: {$available}, diminta: {$qty}",
                 ]);
             }
+
+            // Consume FIFO layer gudang asal
+            $this->consumeFifoLayers(
+                itemId:      $data['item_id'],
+                warehouseId: $data['from_warehouse_id'],
+                qty:         $qty,
+                stock:       $fromStock,
+            );
 
             $fromStock->qty -= $qty;
             $fromStock->qty_reserved = max(0, $fromStock->qty_reserved - $qty);
@@ -168,14 +196,14 @@ class StockService
             $this->lowStockAlert->checkAndAlert($data['from_warehouse_id'], $data['item_id']);
 
             $baseData = [
-                'item_id'          => $data['item_id'],
+                'item_id'           => $data['item_id'],
                 'from_warehouse_id' => $data['from_warehouse_id'],
-                'to_warehouse_id'  => $data['to_warehouse_id'],
-                'qty'              => $qty,
-                'notes'            => $data['notes'] ?? null,
-                'movement_date'    => $data['movement_date'] ?? today(),
-                'moveable_type'    => $data['moveable_type'] ?? null,
-                'moveable_id'      => $data['moveable_id'] ?? null,
+                'to_warehouse_id'   => $data['to_warehouse_id'],
+                'qty'               => $qty,
+                'notes'             => $data['notes']        ?? null,
+                'movement_date'     => $data['movement_date'] ?? today(),
+                'moveable_type'     => $data['moveable_type'] ?? null,
+                'moveable_id'       => $data['moveable_id']   ?? null,
             ];
 
             $outMovement = $this->createMovement(array_merge($baseData, [
@@ -242,18 +270,17 @@ class StockService
             $stock->last_updated = now();
             $stock->save();
 
-            // ── Low stock check ──────────────────────────────────────────────
             $this->lowStockAlert->checkAndAlert($warehouseId, $itemId);
 
             return $this->createMovement([
-                'type'             => 'opname',
-                'item_id'          => $itemId,
+                'type'              => 'opname',
+                'item_id'           => $itemId,
                 'from_warehouse_id' => $warehouseId,
-                'qty'              => abs($newQty - $qtyBefore),
-                'qty_before'       => $qtyBefore,
-                'qty_after'        => $newQty,
-                'notes'            => $notes,
-                'movement_date'    => today(),
+                'qty'               => abs($newQty - $qtyBefore),
+                'qty_before'        => $qtyBefore,
+                'qty_after'         => $newQty,
+                'notes'             => $notes,
+                'movement_date'     => today(),
             ], $userId);
         });
     }
@@ -277,7 +304,6 @@ class StockService
 
         // ── Sesuaikan FIFO layer ─────────────────────────────────────────────
         if ($isIn) {
-            // Stok masuk dari adjustment → buat layer dengan avg_price saat ini
             StockLayer::create([
                 'item_id'       => $data['item_id'],
                 'warehouse_id'  => $data['warehouse_id'],
@@ -290,21 +316,14 @@ class StockService
                 'created_by'    => $userId,
             ]);
         } else {
-            // Stok keluar dari adjustment → consume layer FIFO terlama
-            $qtyRemaining = $qty;
-            $layers = StockLayer::forStock($data['item_id'], $data['warehouse_id'])
-                ->available()->fifo()->lockForUpdate()->get();
-
-            foreach ($layers as $layer) {
-                if ($qtyRemaining <= 0) break;
-                $kurangi = min((float) $layer->qty_sisa, $qtyRemaining);
-                $layer->qty_sisa -= $kurangi;
-                $layer->save();
-                $qtyRemaining -= $kurangi;
-            }
+            $this->consumeFifoLayers(
+                itemId:      $data['item_id'],
+                warehouseId: $data['warehouse_id'],
+                qty:         $qty,
+                stock:       $itemStock,
+            );
         }
 
-        // ── Low stock check ──────────────────────────────────────────────────
         $this->lowStockAlert->checkAndAlert($data['warehouse_id'], $data['item_id']);
 
         return StockMovement::create([
@@ -323,6 +342,57 @@ class StockService
             'moveable_type'     => \App\Models\StokOpname::class,
             'moveable_id'       => 0,
         ]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  PRIVATE HELPERS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Consume FIFO layers untuk qty yang keluar.
+     *
+     * Mengambil layer terlama (FIFO) satu per satu, mengurangi qty_sisa-nya,
+     * dan mengembalikan harga FIFO rata-rata tertimbang dari seluruh qty.
+     *
+     * Jika layer tidak cukup (stok lama sebelum sistem FIFO dipakai),
+     * fallback ke avg_price item.
+     *
+     * @return float harga FIFO rata-rata tertimbang (dipakai di StockMovement.fifo_price)
+     */
+    private function consumeFifoLayers(
+        int       $itemId,
+        int       $warehouseId,
+        float     $qty,
+        ItemStock $stock,
+    ): float {
+        $layers = StockLayer::forStock($itemId, $warehouseId)
+            ->available()
+            ->fifo()
+            ->lockForUpdate()
+            ->get();
+
+        $qtyRemaining   = $qty;
+        $totalFifoValue = 0.0;
+
+        foreach ($layers as $layer) {
+            if ($qtyRemaining <= 0) break;
+
+            $ambil = min((float) $layer->qty_sisa, $qtyRemaining);
+
+            $layer->qty_sisa -= $ambil;
+            $layer->save();
+
+            $totalFifoValue += $ambil * (float) $layer->harga_satuan;
+            $qtyRemaining   -= $ambil;
+        }
+
+        // Fallback untuk sisa qty yang tidak ter-cover layer (stok lama)
+        if ($qtyRemaining > 0) {
+            $fallbackHarga   = (float) ($stock->avg_price ?? Item::find($itemId)?->price ?? 0);
+            $totalFifoValue += $qtyRemaining * $fallbackHarga;
+        }
+
+        return $qty > 0 ? round($totalFifoValue / $qty, 2) : 0.0;
     }
 
     /**

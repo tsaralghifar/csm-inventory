@@ -36,7 +36,7 @@ class ReportController extends Controller
         ]);
     }
 
-    // GET /reports/export-pdf   (stock PDF — sudah ada, diperbaiki)
+    // GET /reports/export-pdf
     public function exportPdf(Request $request): Response|BinaryFileResponse
     {
         $warehouseId = $request->warehouse_id ? (int) $request->warehouse_id : null;
@@ -62,15 +62,17 @@ class ReportController extends Controller
     // ─── Mutasi ───────────────────────────────────────────────────────────────
 
     // GET /reports/movements
+    // Parameter tambahan: moveable_type — untuk filter khusus APD (moveable_type=apd_distribution)
     public function movementReport(Request $request): JsonResponse
     {
         $movements = $this->service->movementReport(
-            warehouseId: $request->warehouse_id ? (int) $request->warehouse_id : null,
-            type:        $request->type,
-            dateFrom:    $request->date_from,
-            dateTo:      $request->date_to,
-            itemId:      $request->item_id ? (int) $request->item_id : null,
-            perPage:     (int) ($request->per_page ?? 50),
+            warehouseId:   $request->warehouse_id   ? (int) $request->warehouse_id : null,
+            type:          $request->type,
+            dateFrom:      $request->date_from,
+            dateTo:        $request->date_to,
+            itemId:        $request->item_id         ? (int) $request->item_id : null,
+            moveableType:  $request->moveable_type,
+            perPage:       (int) ($request->per_page ?? 50),
         );
 
         return response()->json([

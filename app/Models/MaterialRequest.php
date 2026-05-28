@@ -95,7 +95,7 @@ class MaterialRequest extends Model
     public static function generateNumber(): string
     {
         $date   = now()->format('Ymd');
-        $prefix = "MR-{$date}-";
+        $prefix = "TF-{$date}-";
 
         $last = static::lockForUpdate()
             ->where('mr_number', 'like', "{$prefix}%")

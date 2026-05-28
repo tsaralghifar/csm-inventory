@@ -15,7 +15,7 @@
       <div class="csm-card-body py-2">
         <div class="row g-2">
           <div class="col-md-2">
-            <input v-model="filters.search" class="form-control form-control-sm" placeholder="🔍 Cari No. PM..." @input="debouncedLoad" />
+            <input v-model="filters.search" class="form-control form-control-sm" placeholder="🔍 Cari No. MR..." @input="debouncedLoad" />
           </div>
           <div class="col-md-2">
             <select v-model="filters.type" class="form-select form-select-sm" @change="loadData">
@@ -62,7 +62,7 @@
           <table class="table csm-table mb-0">
             <thead>
               <tr>
-                <th>No. PM</th>
+                <th>No. MR</th>
                 <th>Tipe</th>
                 <th>Gudang</th>
                 <th>Item</th>
@@ -445,7 +445,7 @@ function buildPMHtml(pm) {
   <div class="info-grid">
     <div class="info-section">
       <div class="info-title">Informasi Permintaan</div>
-      <div class="info-row"><span class="info-label">No. PM</span><span class="info-value hi">${pm.nomor}</span></div>
+      <div class="info-row"><span class="info-label">No. MR</span><span class="info-value hi">${pm.nomor}</span></div>
       <div class="info-row"><span class="info-label">Gudang / Site</span><span class="info-value hi">${pm.warehouse?.name || '-'}</span></div>
       <div class="info-row"><span class="info-label">Diajukan Oleh</span><span class="info-value">${pm.requester?.name || '-'}</span></div>
       <div class="info-row"><span class="info-label">Tanggal Dibuat</span><span class="info-value">${fmtDatePM(pm.created_at)}</span></div>

@@ -380,11 +380,46 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
         return response()->json(['success' => true, 'data' => $apd->items(), 'meta' => ['total' => $apd->total(), 'page' => $apd->currentPage()]]);
     });
     Route::post('/apd', function (Request $req) {
-        $v = $req->validate(['distribution_date' => 'required|date', 'employee_id' => 'required|exists:employees,id', 'item_id' => 'required|exists:items,id', 'warehouse_id' => 'required|exists:warehouses,id', 'qty' => 'required|numeric|min:0.01', 'size' => 'nullable|string', 'brand' => 'nullable|string', 'handed_by' => 'nullable|string', 'notes' => 'nullable|string']);
+        $v = $req->validate([
+            'distribution_date' => 'required|date',
+            'employee_id'       => 'required|exists:employees,id',
+            'item_id'           => 'required|exists:items,id',
+            'warehouse_id'      => 'required|exists:warehouses,id',
+            'qty'               => 'required|numeric|min:0.01',
+            'size'              => 'nullable|string',
+            'brand'             => 'nullable|string',
+            'handed_by'         => 'nullable|string',
+            'notes'             => 'nullable|string',
+        ]);
+
         $v['created_by'] = $req->user()->id;
-        $apd = \App\Models\ApdDistribution::create($v);
-        broadcast(new \App\Events\MasterDataUpdated('apd', 'created', $apd->id))->toOthers();
-        return response()->json(['success' => true, 'data' => $apd->load('employee', 'item', 'warehouse'), 'message' => 'APD berhasil dicatat'], 201);
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($v, $req) {
+            // 1. Simpan record distribusi APD
+            $apd = \App\Models\ApdDistribution::create($v);
+
+            // 2. Kurangi stok via StockService (stock out)
+            //    Ini mencatat mutasi keluar dan meng-update item_stocks.qty
+            $stockService = app(\App\Services\StockService::class);
+            $stockService->stockOut([
+                'item_id'       => $v['item_id'],
+                'warehouse_id'  => $v['warehouse_id'],
+                'qty'           => $v['qty'],
+                'movement_date' => $v['distribution_date'],
+                'notes'         => 'Distribusi APD ke karyawan ID ' . $v['employee_id']
+                                 . ($v['notes'] ? ' — ' . $v['notes'] : ''),
+                'moveable_type' => 'apd_distribution',
+                'moveable_id'   => $apd->id,
+            ], $req->user()->id);
+
+            broadcast(new \App\Events\MasterDataUpdated('apd', 'created', $apd->id))->toOthers();
+
+            return response()->json([
+                'success' => true,
+                'data'    => $apd->load('employee', 'item', 'warehouse'),
+                'message' => 'APD berhasil dicatat dan stok telah dikurangi',
+            ], 201);
+        });
     });
 
     // Employees

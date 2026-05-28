@@ -60,6 +60,7 @@ class ReportService
         ?string $dateFrom,
         ?string $dateTo,
         ?int    $itemId,
+        ?string $moveableType = null,
         int     $perPage = 50,
     ): LengthAwarePaginator {
         $query = StockMovement::with(['item.category', 'fromWarehouse', 'toWarehouse', 'creator'])
@@ -71,10 +72,15 @@ class ReportService
                   ->orWhere('to_warehouse_id', $warehouseId)
             );
         }
-        if ($type)     $query->where('type', $type);
-        if ($dateFrom) $query->where('movement_date', '>=', $dateFrom);
-        if ($dateTo)   $query->where('movement_date', '<=', $dateTo);
-        if ($itemId)   $query->where('item_id', $itemId);
+
+        // Filter di DB — lebih efisien dari ->get()->filter()
+        if ($type)         $query->where('type', $type);
+        if ($dateFrom)     $query->where('movement_date', '>=', $dateFrom);
+        if ($dateTo)       $query->where('movement_date', '<=', $dateTo);
+        if ($itemId)       $query->where('item_id', $itemId);
+
+        // Filter moveable_type — dipakai untuk isolasi mutasi APD dari pengeluaran bon biasa
+        if ($moveableType) $query->where('moveable_type', $moveableType);
 
         return $query->paginate($perPage);
     }
@@ -167,6 +173,8 @@ class ReportService
     /**
      * Laporan pembelian barang dari Purchase Order.
      * Mendukung filter: tanggal, payment_type (cash/kredit), status PO, supplier.
+     *
+     * Semua filter diterapkan di DB (bukan di Collection) untuk efisiensi memori.
      */
     public function purchaseReport(
         ?string $dateFrom    = null,
@@ -184,6 +192,7 @@ class ReportService
             ])
             ->withCount('items');
 
+        // ── Filter di DB level (bukan setelah ->get()) ────────────────────────
         if ($dateFrom) $query->whereDate('created_at', '>=', $dateFrom);
         if ($dateTo)   $query->whereDate('created_at', '<=', $dateTo);
 
@@ -195,8 +204,8 @@ class ReportService
 
         $orders = $query->orderByDesc('created_at')->get();
 
-        // ── Summary ──────────────────────────────────────────────────────────
-
+        // ── Summary — dihitung dari hasil query yang sudah terfilter ──────────
+        // Agregasi ringan di Collection karena data sudah terfilter di DB
         $cashOrders   = $orders->where('payment_type', 'cash');
         $kreditOrders = $orders->where('payment_type', 'kredit');
 
@@ -306,9 +315,14 @@ class ReportService
         if ($categoryId) {
             $query->whereHas('item', fn($q) => $q->where('category_id', $categoryId));
         }
+
+        // Filter stok kritis dan minus langsung di DB ──────────────────────────
         if ($filter === 'critical') {
-            $query->whereHas('item', fn($q) => $q->whereColumn('item_stocks.qty', '<=', 'items.min_stock')
-                ->where('item_stocks.qty', '>=', 0));
+            $query->join('items', 'item_stocks.item_id', '=', 'items.id')
+                ->whereColumn('item_stocks.qty', '<=', 'items.min_stock')
+                ->where('item_stocks.qty', '>=', 0)
+                ->where('items.min_stock', '>', 0)
+                ->select('item_stocks.*');
         }
         if ($filter === 'minus') {
             $query->where('qty', '<', 0);
@@ -358,6 +372,11 @@ class ReportService
             $query->whereHas('item', fn($q) => $q->where('category_id', $categoryId));
         }
 
+        // Filter minus langsung di DB sebelum grouping ─────────────────────────
+        if ($filter === 'minus') {
+            $query->where('qty', '<', 0);
+        }
+
         $grouped = $query->get()->groupBy('item_id')->map(function ($rows) {
             $first    = $rows->first();
             $totalQty = $rows->sum(fn($s) => (float) $s->qty);
@@ -405,15 +424,14 @@ class ReportService
             ];
         })->values();
 
-        // Filter setelah grouping
+        // Filter critical setelah grouping (perlu totalQty lintas gudang)
+        // Filter minus sudah dikerjakan di DB di atas, cukup skip di sini.
         if ($filter === 'critical') {
             $grouped = $grouped->filter(
                 fn($s) => $s['qty'] >= 0
                     && ($s['item']->min_stock ?? 0) > 0
                     && $s['qty'] <= ($s['item']->min_stock ?? 0)
             )->values();
-        } elseif ($filter === 'minus') {
-            $grouped = $grouped->filter(fn($s) => $s['qty'] < 0)->values();
         }
 
         return $grouped->sortBy(fn($s) => $s['item']->name)->values();

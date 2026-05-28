@@ -15,7 +15,7 @@
       <div class="csm-card-body py-2">
         <div class="row g-2">
           <div class="col-md-3">
-            <input v-model="filters.search" class="form-control form-control-sm" placeholder="🔍 Cari No. MR..." @input="debouncedLoad" />
+            <input v-model="filters.search" class="form-control form-control-sm" placeholder="🔍 Cari No. TF..." @input="debouncedLoad" />
           </div>
           <div class="col-md-2">
             <select v-model="filters.status" class="form-select form-select-sm" @change="loadData">
@@ -56,7 +56,7 @@
           <table class="table csm-table mb-0">
             <thead>
               <tr>
-                <th>No. MR</th>
+                <th>No. TF</th>
                 <th>Gudang Asal</th>
                 <th>Gudang Tujuan</th>
                 <th>Item</th>
@@ -133,7 +133,7 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h6 class="modal-title text-primary"><i class="bi bi-arrow-left-right me-2"></i>Buat MR Transfer Barang</h6>
+            <h6 class="modal-title text-primary"><i class="bi bi-arrow-left-right me-2"></i>Buat TF Transfer Barang</h6>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
@@ -530,7 +530,7 @@ async function saveTransfer() {
       notes: form.value.notes,
       items: form.value.items.map(i => ({ item_id: i.item_id, qty: i.qty, keterangan: i.keterangan })),
     })
-    toast.success('MR Transfer berhasil dibuat')
+    toast.success('TF Transfer berhasil dibuat')
     suppressNextToast = true
     Modal.getInstance('#modalCreateTransfer')?.hide()
     loadData()
@@ -539,7 +539,7 @@ async function saveTransfer() {
 
 // ── Submit ──
 async function doSubmit(mr) {
-  if (!confirm(`Submit MR ${mr.mr_number} ke Admin untuk disetujui?`)) return
+  if (!confirm(`Submit TF ${mr.mr_number} ke Admin untuk disetujui?`)) return
   acting.value = true
   try {
     await axios.post(`/transfer-barang/${mr.id}/submit`)
@@ -584,7 +584,7 @@ async function doApproveAdmin() {
 
 // ── Approve Atasan ──
 async function doApproveAtasan(mr) {
-  if (!confirm(`Setujui MR Transfer ${mr.mr_number} sebagai Atasan?`)) return
+  if (!confirm(`Setujui TF ${mr.mr_number} sebagai Atasan?`)) return
   acting.value = true
   try {
     await axios.post(`/transfer-barang/${mr.id}/approve-atasan`)
@@ -605,7 +605,7 @@ async function doReject() {
   acting.value = true
   try {
     await axios.post(`/transfer-barang/${selectedMR.value.id}/reject`, { reason: rejectReason.value })
-    toast.success('MR Transfer ditolak')
+    toast.success('TF Transfer ditolak')
     suppressNextToast = true
     Modal.getInstance('#modalRejectTransfer')?.hide()
     loadData()
@@ -614,10 +614,10 @@ async function doReject() {
 
 // ── Hapus ──
 async function doDelete(mr) {
-  if (!confirm(`Hapus MR ${mr.mr_number}?`)) return
+  if (!confirm(`Hapus TF ${mr.mr_number}?`)) return
   try {
     await axios.delete(`/transfer-barang/${mr.id}`)
-    toast.success('MR Transfer dihapus')
+    toast.success('TF Transfer dihapus')
     suppressNextToast = true
     loadData()
   } catch (e) { toast.error(e.response?.data?.message || 'Gagal') }
@@ -676,7 +676,7 @@ function printMR(mr) {
 
   const html =
     '<!DOCTYPE html>'+htO+
-    o+'head'+c+o+'meta charset="UTF-8"/'+c+o+'title'+'>'+'MR-'+mr.mr_number+o+'/title'+c+
+    o+'head'+c+o+'meta charset="UTF-8"/'+c+o+'title'+'>'+mr.mr_number+o+'/title'+c+
     stO+css+stC+hdC+
     o+'body'+c+
     '<div class="hdr"><h1>PT. CIPTA SARANA MAKMUR</h1></div>'+
@@ -692,7 +692,7 @@ function printMR(mr) {
     '<div class="igrid">'+
       '<div class="isec">'+
         '<div class="ititle">Informasi Transfer</div>'+
-        '<div class="irow"><span class="ilbl">No. MR</span><span class="ival">'+mr.mr_number+'</span></div>'+
+        '<div class="irow"><span class="ilbl">No. TF</span><span class="ival">'+mr.mr_number+'</span></div>'+
         '<div class="irow"><span class="ilbl">Tanggal</span><span class="ival2">'+fmtD(mr.created_at)+'</span></div>'+
         '<div class="irow"><span class="ilbl">Diajukan Oleh</span><span class="ival">'+(mr.requester?.name||'-')+'</span></div>'+
         (mr.needed_date ? '<div class="irow"><span class="ilbl">Tgl. Dibutuhkan</span><span class="ival2">'+fmtD(mr.needed_date)+'</span></div>' : '')+
