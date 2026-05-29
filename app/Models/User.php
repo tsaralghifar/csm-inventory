@@ -18,6 +18,7 @@ class User extends Authenticatable
 
     protected $fillable = [
         'name', 'email', 'phone', 'employee_id', 'position',
+        'signature',                          // ← base64 PNG tanda tangan
         'warehouse_id', 'password', 'is_active', 'last_login_at',
     ];
 
@@ -25,20 +26,31 @@ class User extends Authenticatable
 
     protected $casts = [
         'email_verified_at' => 'datetime',
-        'last_login_at' => 'datetime',
-        'password' => 'hashed',
-        'is_active' => 'boolean',
+        'last_login_at'     => 'datetime',
+        'password'          => 'hashed',
+        'is_active'         => 'boolean',
     ];
+
+    // ── Relasi ─────────────────────────────────────────────────────────────
 
     public function warehouse()
     {
         return $this->belongsTo(Warehouse::class);
     }
 
+    // ── Scopes ─────────────────────────────────────────────────────────────
+
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
     }
+
+    public function scopeHasSignature($query)
+    {
+        return $query->whereNotNull('signature');
+    }
+
+    // ── Helpers (tidak berubah dari asli) ──────────────────────────────────
 
     public function isSuperuser(): bool
     {
@@ -54,5 +66,33 @@ class User extends Authenticatable
     {
         if ($this->isSuperuser() || $this->isAdminHO()) return true;
         return $this->warehouse_id === $warehouseId;
+    }
+
+    // ── Helpers tanda tangan ───────────────────────────────────────────────
+
+    /**
+     * Cek apakah user sudah upload tanda tangan.
+     */
+    public function hasSignature(): bool
+    {
+        return ! empty($this->signature);
+    }
+
+    /**
+     * Kembalikan data URI siap pakai di <img src="..."> atau DomPDF.
+     * Jika signature sudah berupa data URI, kembalikan apa adanya.
+     * Jika tidak ada signature, kembalikan null.
+     */
+    public function signatureDataUri(): ?string
+    {
+        if (empty($this->signature)) return null;
+
+        // Sudah berformat data URI
+        if (str_starts_with($this->signature, 'data:')) {
+            return $this->signature;
+        }
+
+        // Plain base64 — tambahkan header PNG
+        return 'data:image/png;base64,' . $this->signature;
     }
 }

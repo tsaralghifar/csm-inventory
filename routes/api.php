@@ -456,17 +456,30 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
         Route::get('/purchase-pdf',   [ReportController::class, 'purchasePdf']);
     });
 
+    // ── Profile & Tanda Tangan Digital ──────────────────────────────────────
+    // PENTING: route statis /users/signature, /users/signable harus di atas
+    // route parameter /users/{user} agar tidak tertangkap sebagai ID user.
+
+    // Semua user (semua role) bisa akses profil & kelola TTD sendiri
+    Route::get('/profile',            [UserController::class, 'profile']);
+    Route::post('/users/signature',   [UserController::class, 'uploadSignature']);
+    Route::delete('/users/signature', [UserController::class, 'deleteSignature']);
+    Route::get('/users/signable',     [UserController::class, 'signableUsers']);
+
     // Admin: Users & Roles
     Route::middleware('role:superuser')->group(function () {
-        Route::get('/users',                        [UserController::class, 'index']);
-        Route::post('/users',                       [UserController::class, 'store']);
-        Route::get('/users/{user}',                 [UserController::class, 'show']);
-        Route::put('/users/{user}',                 [UserController::class, 'update']);
-        Route::delete('/users/{user}',              [UserController::class, 'destroy']);
-        Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
-        Route::get('/roles',                        [UserController::class, 'roles']);
-        Route::get('/permissions',                  [UserController::class, 'permissions']);
-        Route::post('/roles/update-permissions',    [UserController::class, 'updateRolePermissions']);
+        Route::get('/users',                          [UserController::class, 'index']);
+        Route::post('/users',                         [UserController::class, 'store']);
+        Route::get('/users/signature-status',          [UserController::class, 'signatureStatus']);  // statis — harus sebelum {user}
+        Route::post('/users/{user}/signature',         [UserController::class, 'uploadSignatureFor']); // superuser upload TTD user lain
+        Route::delete('/users/{user}/signature',       [UserController::class, 'deleteSignatureFor']); // superuser hapus TTD user lain
+        Route::get('/users/{user}',                   [UserController::class, 'show']);
+        Route::put('/users/{user}',                   [UserController::class, 'update']);
+        Route::delete('/users/{user}',                [UserController::class, 'destroy']);
+        Route::post('/users/{user}/reset-password',   [UserController::class, 'resetPassword']);
+        Route::get('/roles',                          [UserController::class, 'roles']);
+        Route::get('/permissions',                    [UserController::class, 'permissions']);
+        Route::post('/roles/update-permissions',      [UserController::class, 'updateRolePermissions']);
     });
 
     // Audit Log

@@ -158,11 +158,7 @@ table.dt tr.r-total td.rv { color:#4ade80; font-size:9.5px; text-align:right; }
 .ftr-tbl td { vertical-align:bottom; padding:0; }
 .ftr-text { font-size:7.5px; color:#94a3b8; line-height:1.7; }
 .ftr-text strong { color:#475569; }
-.sign-box { display:inline-block; border:1px solid #e2e8f0; border-radius:4px;
-            padding:5px 10px; text-align:center; width:95px; margin-left:10px; }
-.sign-lbl  { font-size:6.5px; color:#94a3b8; margin-bottom:1px; }
-.sign-line { margin-top:26px; border-top:1px solid #94a3b8; padding-top:3px;
-             font-size:6.5px; color:#475569; }
+/* Signature styles — lihat resources/views/pdf/partials/signature-section.blade.php */
 </style>
 </head>
 <body>
@@ -552,34 +548,13 @@ table.dt tr.r-total td.rv { color:#4ade80; font-size:9.5px; text-align:right; }
 </table>
 </div>
 
-{{-- FOOTER --}}
-<div class="ftr">
-  <table style="width:100%;border-collapse:collapse;">
-    <tr>
-      <td style="width:58%;vertical-align:bottom;">
-        <p class="ftr-text">
-          Laporan ini digenerate otomatis oleh <strong>CSM Inventory System</strong>
-          pada <strong>{{ $dateStr }}</strong> pukul <strong>{{ $timeStr }} WIB</strong>.
-        </p>
-        <p class="ftr-text" style="margin-top:2px;">
-          Periode: <strong>{{ $dateFrom }}</strong> s/d <strong>{{ $dateTo }}</strong> &nbsp;&bull;&nbsp;
-          Jenis Pembayaran: <strong>{{ $payLabel }}</strong> &nbsp;&bull;&nbsp;
-          Supplier: <strong>{{ $supplierNm }}</strong>
-        </p>
-      </td>
-      <td style="width:42%;text-align:right;vertical-align:bottom;">
-        <div class="sign-box">
-          <div class="sign-lbl">Dibuat oleh</div>
-          <div class="sign-line">Bagian Purchasing</div>
-        </div>
-        <div class="sign-box">
-          <div class="sign-lbl">Disetujui oleh</div>
-          <div class="sign-line">Kepala Gudang</div>
-        </div>
-      </td>
-    </tr>
-  </table>
-</div>
+{{-- ═══ FOOTER + TANDA TANGAN ═══ --}}
+@include('pdf.partials.signature-section', [
+    'signers'     => $signers ?? [],
+    'dateStr'     => $dateStr,
+    'timeStr'     => $timeStr,
+    'leftSubText' => "Periode: {$dateFrom} s/d {$dateTo} &bull; Jenis Pembayaran: {$payLabel} &bull; Supplier: {$supplierNm}",
+])
 
 </body>
 </html>
