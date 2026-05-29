@@ -12,7 +12,7 @@
           <span v-if="exportingExcel" class="spinner-border spinner-border-sm me-1" style="width:12px;height:12px;border-width:2px;"></span>
           <i v-else class="bi bi-file-earmark-excel me-1"></i>Excel
         </button>
-        <button class="btn btn-danger btn-sm" @click="exportPdf" :disabled="exportingPdf">
+        <button class="btn btn-danger btn-sm" @click="onClickExportPdf" :disabled="exportingPdf">
           <span v-if="exportingPdf" class="spinner-border spinner-border-sm me-1" style="width:12px;height:12px;border-width:2px;"></span>
           <i v-else class="bi bi-file-earmark-pdf me-1"></i>PDF
         </button>
@@ -357,320 +357,241 @@
     </div>
 
   </div>
+  <!-- Modal Pilih Penandatangan -->
+  <SignerPickerModal
+    v-model="showSignerModal"
+    :signers="signers"
+    @confirm="exportPdf"
+  />
 </template>
-
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useToast } from 'vue-toastification'
+import { useSignerPicker } from '@/composables/useSignerPicker'
+import SignerPickerModal from '@/components/SignerPickerModal.vue'
+import dayjs from 'dayjs'
 
 const toast = useToast()
 
-const suppliers   = ref([])
-const orders      = ref([])
-const loading     = ref(false)
-const loaded      = ref(false)
+// ── Signer Picker ────────────────────────────────────────────────────
+const { showSignerModal, signers, openSignerPicker } = useSignerPicker()
+
+// ── State ────────────────────────────────────────────────────────────
+const suppliers      = ref([])
+const orders         = ref([])
+const summary        = ref({ total_po: 0, total_nilai: 0, total_cash: 0, total_kredit: 0, nilai_cash: 0, nilai_kredit: 0 })
+const loading        = ref(false)
+const loaded         = ref(false)
 const exportingExcel = ref(false)
 const exportingPdf   = ref(false)
 
-const today = new Date().toISOString().slice(0, 10)
-
-// Default: bulan berjalan
-const nowDate = new Date()
-const firstDay = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).toISOString().slice(0, 10)
-const lastDay  = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 0).toISOString().slice(0, 10)
+const today = dayjs().format('YYYY-MM-DD')
 
 const params = ref({
-  date_from:    firstDay,
-  date_to:      lastDay,
+  date_from:    dayjs().startOf('month').format('YYYY-MM-DD'),
+  date_to:      dayjs().format('YYYY-MM-DD'),
   payment_type: '',
   status:       '',
   supplier_id:  '',
 })
 
-const summary = ref({
-  total_po: 0, total_nilai: 0,
-  total_cash: 0, nilai_cash: 0,
-  total_kredit: 0, nilai_kredit: 0,
-})
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function statusLabel(s) {
-  return {
-    draft:            'Draft',
-    sent_to_vendor:   'Dikirim',
-    partial_received: 'Sebagian',
-    completed:        'Selesai',
-    cancelled:        'Dibatalkan',
-  }[s] || s
-}
-
-function statusClass(s) {
-  return {
-    draft:            'bg-secondary',
-    sent_to_vendor:   'bg-primary',
-    partial_received: 'bg-info text-dark',
-    completed:        'bg-success',
-    cancelled:        'bg-danger',
-  }[s] || 'bg-secondary'
-}
-
-function isOverdue(po) {
-  return po.payment_type === 'kredit'
-    && po.payment_due_date
-    && po.payment_due_date < today
-    && invoiceStatus(po) !== 'paid'
-}
-
-function overdayCount(po) {
-  if (!po.payment_due_date) return 0
-  const diff = new Date(today) - new Date(po.payment_due_date)
-  return Math.floor(diff / 86400000)
-}
-
-function invoiceStatus(po) {
-  const invs = po.supplier_invoices || []
-  if (!invs.length) return 'none'
-  if (invs.every(i => i.status === 'paid')) return 'paid'
-  if (invs.some(i => i.status === 'partial')) return 'partial'
-  if (isOverdue(po)) return 'overdue'
-  return 'unpaid'
-}
-
-// ─── Data load ────────────────────────────────────────────────────────────────
-
+// ── Lifecycle ────────────────────────────────────────────────────────
 onMounted(async () => {
-  const r = await axios.get('/suppliers')
-  suppliers.value = r.data.data || []
+  try {
+    const r = await axios.get('/suppliers', { params: { per_page: 999 } })
+    suppliers.value = r.data.data || r.data || []
+  } catch {
+    suppliers.value = []
+  }
 })
 
+// ── Load Data ────────────────────────────────────────────────────────
 async function load() {
   loading.value = true
   try {
-    const r = await axios.get('/reports/purchase', { params: params.value })
-    orders.value  = r.data.data
-    summary.value = r.data.summary
+    const r = await axios.get('/reports/purchase', {
+      params: {
+        date_from:    params.value.date_from    || undefined,
+        date_to:      params.value.date_to      || undefined,
+        payment_type: params.value.payment_type || undefined,
+        status:       params.value.status       || undefined,
+        supplier_id:  params.value.supplier_id  || undefined,
+      }
+    })
+    orders.value  = (r.data.data || []).map(po => ({ ...po, _expanded: false }))
+    summary.value = r.data.summary || { total_po: 0, total_nilai: 0, total_cash: 0, total_kredit: 0, nilai_cash: 0, nilai_kredit: 0 }
     loaded.value  = true
   } catch (e) {
-    toast.error('Gagal memuat data laporan pembelian')
+    toast.error(e.response?.data?.message || 'Gagal memuat laporan pembelian')
   } finally {
     loading.value = false
   }
 }
 
 function resetFilter() {
-  params.value.payment_type = ''
-  params.value.status       = ''
-  params.value.supplier_id  = ''
+  params.value = {
+    date_from:    dayjs().startOf('month').format('YYYY-MM-DD'),
+    date_to:      dayjs().format('YYYY-MM-DD'),
+    payment_type: '',
+    status:       '',
+    supplier_id:  '',
+  }
+  orders.value  = []
+  summary.value = { total_po: 0, total_nilai: 0, total_cash: 0, total_kredit: 0, nilai_cash: 0, nilai_kredit: 0 }
+  loaded.value  = false
 }
 
-// ─── Export Excel ─────────────────────────────────────────────────────────────
+// ── Status Helpers ────────────────────────────────────────────────────
+const statusLabel = (s) => ({
+  draft:            'Draft',
+  sent_to_vendor:   'Dikirim ke Vendor',
+  partial_received: 'Diterima Sebagian',
+  completed:        'Selesai',
+  cancelled:        'Dibatalkan',
+}[s] || s)
 
+const statusClass = (s) => ({
+  draft:            'bg-secondary',
+  sent_to_vendor:   'bg-info text-dark',
+  partial_received: 'bg-warning text-dark',
+  completed:        'bg-success',
+  cancelled:        'bg-danger',
+}[s] || 'bg-secondary')
+
+// ── Due Date Helpers ──────────────────────────────────────────────────
+function isOverdue(po) {
+  if (po.payment_type !== 'kredit' || !po.payment_due_date) return false
+  return po.payment_due_date < today && po.status !== 'cancelled'
+}
+
+function overdayCount(po) {
+  if (!po.payment_due_date) return 0
+  return dayjs().diff(dayjs(po.payment_due_date), 'day')
+}
+
+// ── Invoice Status ────────────────────────────────────────────────────
+function invoiceStatus(po) {
+  const invs = po.supplier_invoices || []
+  if (!invs.length) return 'unpaid'
+  if (invs.every(i => i.status === 'paid')) return 'paid'
+  if (invs.some(i => i.status === 'paid' || i.status === 'partial')) return 'partial'
+  if (invs.some(i => i.status !== 'paid' && i.due_date < today)) return 'overdue'
+  return 'unpaid'
+}
+
+// ── Export Excel (CSV) ────────────────────────────────────────────────
 async function exportExcel() {
+  if (!orders.value.length) { toast.warning('Tidak ada data untuk diekspor'); return }
   exportingExcel.value = true
   try {
-    if (!window._XLSXLoaded) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script')
-        s.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js'
-        s.onload = () => { window._XLSXLoaded = true; resolve() }
-        s.onerror = reject
-        document.head.appendChild(s)
-      })
-    }
-    const XLSX = window.XLSX
-
-    const now     = new Date()
-    const dateStr = now.toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' })
-    const timeStr = now.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })
-    const fmtRp   = v => v > 0 ? 'Rp ' + Number(v).toLocaleString('id-ID') : '-'
-    const ptLabel = { '': 'Semua', 'cash': 'Cash', 'kredit': 'Kredit' }
-
-    const wb = XLSX.utils.book_new()
-    const ws = {}
-    ws['!merges'] = []
-
-    ws['!cols'] = [
-      {wch:4},   // # 
-      {wch:22},  // No. PO / nama barang
-      {wch:24},  // Vendor
-      {wch:16},  // Gudang
-      {wch:11},  // Tgl PO
-      {wch:11},  // Pembayaran
-      {wch:9},   // Tenor
-      {wch:13},  // Jatuh Tempo
-      {wch:19},  // Subtotal / qty×harga
-      {wch:15},  // Nilai PPN
-      {wch:17},  // Grand Total
-      {wch:12},  // Status PO
-      {wch:13},  // Status Bayar
+    const headers = [
+      'No', 'No. PO', 'Vendor/Supplier', 'Gudang', 'Tgl. PO',
+      'Jenis Pembayaran', 'Tenor (Hari)', 'Jatuh Tempo',
+      'Subtotal', 'PPN %', 'Nilai PPN', 'Grand Total',
+      'Status PO', 'Status Bayar',
+      'No. Item', 'Part Number', 'Nama Barang', 'Qty', 'Satuan', 'Harga Satuan', 'Total Item',
     ]
-    ws['!rows'] = []
-    const setRowH = (r, hpt) => { ws['!rows'][r] = { hpt } }
 
-    const B = (style='thin', color='D0D9E8') => ({ style, color: { rgb: color } })
-    const brd = () => ({ top:B(), bottom:B(), left:B(), right:B() })
-
-    const sc = (r, c, v, s) => {
-      const addr = XLSX.utils.encode_cell({ r, c })
-      ws[addr] = { v: v ?? '', t: typeof v === 'number' ? 'n' : 's', s: s || {} }
-    }
-    const mg = (r1, c1, r2, c2) => ws['!merges'].push({ s:{r:r1,c:c1}, e:{r:r2,c:c2} })
-
-    const S = {
-      h1: { font:{bold:true,sz:14,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1A3A5C'}}, alignment:{vertical:'center',indent:1} },
-      h2: { font:{sz:9,color:{rgb:'BFD0E8'}},            fill:{fgColor:{rgb:'243F6A'}}, alignment:{vertical:'center',indent:1} },
-      iL: { font:{bold:true,sz:9,color:{rgb:'1A3A5C'}},  fill:{fgColor:{rgb:'D6E4F5'}}, alignment:{vertical:'center',indent:1}, border:brd() },
-      iV: { font:{sz:9,color:{rgb:'1A3A5C'}},            fill:{fgColor:{rgb:'EBF3FD'}}, alignment:{vertical:'center',indent:1}, border:brd() },
-      th: { font:{bold:true,sz:9,color:{rgb:'FFFFFF'}},  fill:{fgColor:{rgb:'1A3A5C'}}, alignment:{horizontal:'center',vertical:'center',wrapText:true}, border:{top:B('medium','FFFFFF'),bottom:B('medium','4A7DB5'),left:B('thin','4A7DB5'),right:B('thin','4A7DB5')} },
-      kL: (clr) => ({ font:{bold:true,sz:8,color:{rgb:clr}}, fill:{fgColor:{rgb:'F8FAFC'}}, alignment:{horizontal:'center',vertical:'center'}, border:brd() }),
-      kV: (clr) => ({ font:{bold:true,sz:15,color:{rgb:clr}}, fill:{fgColor:{rgb:'FFFFFF'}}, alignment:{horizontal:'center',vertical:'center'}, border:brd() }),
-      re: (x={}) => ({ font:{sz:9}, fill:{fgColor:{rgb:'FFFFFF'}}, border:brd(), ...x }),
-      ro: (x={}) => ({ font:{sz:9}, fill:{fgColor:{rgb:'F0F5FF'}}, border:brd(), ...x }),
-      ri: (x={}) => ({ font:{sz:8,italic:true}, fill:{fgColor:{rgb:'F8F9FA'}}, border:brd(), ...x }),
-      tL: { font:{bold:true,sz:10,color:{rgb:'1A3A5C'}}, fill:{fgColor:{rgb:'D6E4F5'}}, alignment:{horizontal:'right',vertical:'center',indent:1}, border:{top:B('medium','1A3A5C'),bottom:B('medium','1A3A5C'),left:B('medium','1A3A5C'),right:B('thin','D0D9E8')} },
-      tV: { font:{bold:true,sz:11,color:{rgb:'047857'}}, fill:{fgColor:{rgb:'DCFCE7'}}, alignment:{horizontal:'right',vertical:'center'}, border:{top:B('medium','1A3A5C'),bottom:B('medium','1A3A5C'),left:B('thin','D0D9E8'),right:B('medium','1A3A5C')} },
-      tM: { fill:{fgColor:{rgb:'D6E4F5'}}, border:{top:B('medium','1A3A5C'),bottom:B('medium','1A3A5C'),left:B('thin'),right:B('thin')} },
-    }
-
-    let R = 0
-
-    // Header
-    for (let c = 0; c <= 12; c++) sc(R, c, '', S.h1)
-    sc(R, 0, 'PT. CIPTA SARANA MAKMUR', S.h1); mg(R, 0, R, 12); setRowH(R, 22); R++
-    for (let c = 0; c <= 12; c++) sc(R, c, '', S.h2)
-    sc(R, 0, 'LAPORAN PEMBELIAN BARANG', S.h2); mg(R, 0, R, 12); setRowH(R, 16); R++
-
-    // Info row
-    sc(R,0,'Periode',S.iL);    sc(R,1,'',S.iL);   mg(R,0,R,1)
-    sc(R,2,`${params.value.date_from || '—'} s/d ${params.value.date_to || '—'}`,S.iV); sc(R,3,'',S.iV); sc(R,4,'',S.iV); mg(R,2,R,4)
-    sc(R,5,'Jenis Bayar',S.iL); sc(R,6,'',S.iL);  mg(R,5,R,6)
-    sc(R,7,ptLabel[params.value.payment_type],S.iV); sc(R,8,'',S.iV); sc(R,9,'',S.iV); mg(R,7,R,9)
-    sc(R,10,'Dicetak',S.iL); sc(R,11,'',S.iL); mg(R,10,R,11)
-    sc(R,12,`${dateStr} ${timeStr}`,S.iV); setRowH(R, 18); R++
-
-    // KPI
-    ;[['Total PO','1A3A5C'],['Nilai Total','047857'],['PO Cash','0369A1'],['PO Kredit','B45309']]
-      .forEach(([lbl, clr], ci) => {
-        const s = ci * 3, e = ci === 3 ? 12 : s + 2
-        sc(R, s, lbl, S.kL(clr)); for(let x=s+1;x<=e;x++) sc(R,x,'',S.kL(clr)); mg(R,s,R,e)
-      }); setRowH(R, 14); R++
-    ;[
-      [summary.value.total_po, '1A3A5C'],
-      [fmtRp(summary.value.total_nilai), '047857'],
-      [summary.value.total_cash + ' PO / ' + fmtRp(summary.value.nilai_cash), '0369A1'],
-      [summary.value.total_kredit + ' PO / ' + fmtRp(summary.value.nilai_kredit), 'B45309'],
-    ].forEach(([val, clr], ci) => {
-        const s = ci * 3, e = ci === 3 ? 12 : s + 2
-        sc(R, s, val, S.kV(clr)); for(let x=s+1;x<=e;x++) sc(R,x,'',S.kV(clr)); mg(R,s,R,e)
-      }); setRowH(R, 28); R++
-
-    R++ // spacer
-
-    // Table header
-    ;['#','No. PO','Vendor / Supplier','Gudang','Tgl. PO','Pembayaran','Tenor (hr)','Jatuh Tempo','Subtotal','Nilai PPN','Grand Total','Status PO','Status Bayar']
-      .forEach((h, c) => sc(R, c, h, S.th)); setRowH(R, 28); R++
-
+    const rows = []
     orders.value.forEach((po, i) => {
-      const row = i % 2 === 0 ? S.re : S.ro
-      const sLbl = statusLabel(po.status)
-      const ptLbl = po.payment_type === 'cash' ? 'Cash' : 'Kredit'
-      const bayar = po.payment_type === 'cash' ? 'Lunas' : (['paid'].includes(invoiceStatus(po)) ? 'Lunas' : invoiceStatus(po) === 'partial' ? 'Parsial' : isOverdue(po) ? 'Jatuh Tempo' : 'Belum Bayar')
+      const statusBayar = po.payment_type === 'cash' ? 'Lunas' : invoiceStatus(po)
+      const baseRow = [
+        i + 1,
+        po.po_number,
+        po.vendor_name || '',
+        po.warehouse?.name || '',
+        po.created_at ? po.created_at.slice(0, 10) : '',
+        po.payment_type === 'cash' ? 'Cash' : 'Kredit',
+        po.payment_term_days || '',
+        po.payment_due_date || '',
+        po.total_amount,
+        po.ppn_percent || 0,
+        po.ppn_amount  || 0,
+        po.grand_total,
+        statusLabel(po.status),
+        statusBayar,
+      ]
 
-      sc(R, 0,  i+1,                           row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R, 1,  po.po_number,                   row({font:{bold:true,sz:9,color:{rgb:'1A3A5C'}},alignment:{vertical:'center'}}))
-      sc(R, 2,  po.vendor_name,                 row({font:{bold:true,sz:9},alignment:{vertical:'center'}}))
-      sc(R, 3,  po.warehouse?.name || '—',      row({font:{sz:9},alignment:{vertical:'center'}}))
-      sc(R, 4,  po.created_at?.slice(0,10),     row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R, 5,  ptLbl,                          row({font:{bold:true,sz:9,color:{rgb: po.payment_type==='cash'?'0369A1':'B45309'}},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R, 6,  po.payment_term_days || '—',    row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R, 7,  po.payment_due_date || '—',     row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R, 8,  fmtRp(po.total_amount),         row({font:{sz:9},alignment:{horizontal:'right',vertical:'center'}}))
-      sc(R, 9,  po.ppn_percent > 0 ? fmtRp(po.ppn_amount) : '-', row({font:{sz:9,color:{rgb: po.ppn_percent>0 ? '0369A1' : '94A3B8'}},alignment:{horizontal:'right',vertical:'center'}}))
-      sc(R, 10, fmtRp(po.grand_total),          row({font:{bold:true,sz:10},alignment:{horizontal:'right',vertical:'center'}}))
-      sc(R, 11, sLbl,                           row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R, 12, bayar,                          row({font:{bold:true,sz:9,color:{rgb:bayar==='Lunas'?'15803D':bayar==='Jatuh Tempo'?'DC2626':'D97706'}},alignment:{horizontal:'center',vertical:'center'}}))
-      setRowH(R, 20); R++
-
-      // Items — indented rows, no confusion with PO row data
-      ;(po.items || []).forEach((item, ii) => {
-        const iStyle = {
-          font:   { sz:8, color:{rgb:'374151'} },
-          fill:   { fgColor:{ rgb: i%2===0 ? 'F0F5FF' : 'E8EFFA' } },
-          border: brd(),
-        }
-        const iLabel = {
-          font:   { sz:8, italic:true, color:{rgb:'6B7280'} },
-          fill:   { fgColor:{ rgb: i%2===0 ? 'F0F5FF' : 'E8EFFA' } },
-          border: brd(),
-          alignment: { horizontal:'center', vertical:'center' },
-        }
-        // Col 0: kosong (bukan nomor, agar tidak membingungkan dengan nomor PO)
-        sc(R, 0, '', { ...iStyle, border:{ ...brd(), left:{ style:'medium', color:{rgb:'1A3A5C'} } } })
-        // Col 1: nomor item + nama barang (merge 1-3)
-        sc(R, 1, `  ${ii+1}. ${item.nama_barang}`, { ...iStyle, font:{sz:8,bold:true,color:{rgb:'1a3a5c'}}, alignment:{vertical:'center'} })
-        sc(R, 2, '', iStyle); sc(R, 3, '', iStyle); mg(R, 1, R, 3)
-        // Col 4: satuan/unit
-        sc(R, 4, item.satuan || '—', { ...iStyle, alignment:{horizontal:'center',vertical:'center'} })
-        // Col 5-7: kosong
-        sc(R, 5, '', iStyle); sc(R, 6, '', iStyle); sc(R, 7, '', iStyle)
-        // Col 8: qty × harga
-        sc(R, 8, `${item.qty} × ${fmtRp(item.harga_satuan)}`, { ...iStyle, alignment:{horizontal:'right',vertical:'center'} })
-        // Col 9: kosong (PPN)
-        sc(R, 9, '', iStyle)
-        // Col 10: total harga item
-        sc(R, 10, fmtRp(item.total_harga), { ...iStyle, font:{sz:8,bold:true,color:{rgb:'1a3a5c'}}, alignment:{horizontal:'right',vertical:'center'} })
-        // Col 11-12: kosong
-        sc(R, 11, '', iStyle); sc(R, 12, '', iStyle)
-        setRowH(R, 16); R++
-      })
+      if (po.items?.length) {
+        po.items.forEach((item, ii) => {
+          rows.push([
+            ...baseRow,
+            ii + 1,
+            item.part_number || '',
+            item.nama_barang || '',
+            item.qty,
+            item.satuan || '',
+            item.harga_satuan,
+            item.total_harga,
+          ])
+        })
+      } else {
+        rows.push([...baseRow, '', '', '', '', '', '', ''])
+      }
     })
 
-    // Total
-    sc(R, 0, 'TOTAL NILAI PEMBELIAN', S.tL); mg(R, 0, R, 9)
-    for (let c = 1; c <= 9; c++) sc(R, c, '', S.tM)
-    sc(R, 10, fmtRp(summary.value.total_nilai), S.tV)
-    sc(R, 11, '', S.tM); sc(R, 12, '', S.tM)
+    const csv = [headers, ...rows]
+      .map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n')
 
-    ws['!ref'] = XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:R,c:12} })
-    XLSX.utils.book_append_sheet(wb, ws, 'Laporan Pembelian')
-    XLSX.writeFile(wb, `Laporan_Pembelian_${now.toISOString().slice(0,10)}.xlsx`)
+    const from = params.value.date_from || 'awal'
+    const to   = params.value.date_to   || 'akhir'
+    const filename = `laporan_pembelian_${from}_sd_${to}.csv`
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }))
+    a.download = filename
+    a.click()
     toast.success('Export Excel berhasil')
+  } catch {
+    toast.error('Gagal export Excel')
   } finally {
     exportingExcel.value = false
   }
 }
 
-// ─── Export PDF ───────────────────────────────────────────────────────────────
+// ── Export PDF ────────────────────────────────────────────────────────
+async function onClickExportPdf() {
+  if (!orders.value.length) { toast.warning('Tidak ada data untuk diekspor'); return }
+  await openSignerPicker()
+}
 
-async function exportPdf() {
+async function exportPdf(signerIds) {
+  showSignerModal.value = false
   exportingPdf.value = true
   try {
-    const supplierName = params.value.supplier_id
-      ? suppliers.value.find(s => s.id == params.value.supplier_id)?.name || ''
-      : 'Semua Supplier'
-
-    const q = new URLSearchParams()
-    if (params.value.date_from)    q.set('date_from',    params.value.date_from)
-    if (params.value.date_to)      q.set('date_to',      params.value.date_to)
-    if (params.value.payment_type) q.set('payment_type', params.value.payment_type)
-    if (params.value.status)       q.set('status',       params.value.status)
-    if (params.value.supplier_id)  q.set('supplier_id',  params.value.supplier_id)
-    q.set('supplier_name', supplierName)
-
-    const res = await axios.get('/reports/purchase-pdf?' + q.toString(), { responseType: 'blob' })
-    const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
-    const a   = document.createElement('a')
-    a.href     = url
-    a.download = `Laporan_Pembelian_${new Date().toISOString().slice(0,10)}.pdf`
-    document.body.appendChild(a); a.click()
-    document.body.removeChild(a); URL.revokeObjectURL(url)
+    const response = await axios.get('/reports/purchase-pdf', {
+      params: {
+        date_from:    params.value.date_from    || undefined,
+        date_to:      params.value.date_to      || undefined,
+        payment_type: params.value.payment_type || undefined,
+        status:       params.value.status       || undefined,
+        supplier_id:  params.value.supplier_id  || undefined,
+        signer_ids:   signerIds?.length ? signerIds : undefined,
+      },
+      responseType: 'blob',
+    })
+    const from = params.value.date_from || 'awal'
+    const to   = params.value.date_to   || 'akhir'
+    const filename = `laporan_pembelian_${from}_sd_${to}.pdf`
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+    a.download = filename
+    a.click()
     toast.success('Export PDF berhasil')
   } catch (e) {
-    toast.error('Gagal export PDF')
+    toast.error(e.response?.data?.message || 'Gagal export PDF')
   } finally {
     exportingPdf.value = false
   }
 }
 </script>
+
+<style scoped>
+.kpi-card  { border-radius: 10px; padding: 14px 16px; }
+.kpi-primary { background: linear-gradient(135deg,#1a3a5c,#2563eb); color:#fff; }
+.kpi-success { background: linear-gradient(135deg,#065f46,#10b981); color:#fff; }
+.kpi-label { font-size: 0.72rem; opacity: .85; margin-bottom: 2px; }
+.kpi-value { font-size: 1.5rem; font-weight: 800; line-height: 1.1; }
+.kpi-icon  { opacity: .6; }
+</style>

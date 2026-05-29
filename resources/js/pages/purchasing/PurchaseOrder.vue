@@ -365,7 +365,7 @@
             <button type="button" class="btn btn-outline-success btn-sm" @click="exportExcel(selectedPO)">
               <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
             </button>
-            <button type="button" class="btn btn-outline-danger btn-sm" @click="printPDF(selectedPO)">
+            <button type="button" class="btn btn-outline-danger btn-sm" @click="openDetailPrint(selectedPO)">
               <i class="bi bi-printer me-1"></i>Print / PDF
             </button>
           </div>
@@ -747,346 +747,615 @@
   </div>
 
   </div>
+  <!-- Modal Pilih Penandatangan -->
+  <SignerPickerModal
+    v-model="showSignerModal"
+    :signers="signers"
+    @confirm="printPDF"
+  />
 </template>
-
 <script setup>
-/**
- * PurchaseOrder.vue — Script refactor
- *
- * Perubahan dari versi sebelumnya:
- *  - Konstanta status & payment dipisah ke atas
- *  - Filter/state dikelompokkan per concern
- *  - Computed dipecah menjadi fungsi tematik (usePOForm, usePOFilters, usePMSelector)
- *  - Semua fungsi async menggunakan try/catch/finally konsisten
- *  - saveCreatePO mengirim payload via fungsi buildPayload() agar mudah ditest
- *  - buildPOHtml dipecah ke helper fmtRp / fmtDate / renderRows / renderPaymentInfo
- */
-
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Modal } from 'bootstrap'
 import axios from 'axios'
-import PartNumberEditButton from '@/components/PartNumberEditButton.vue'
+import { Modal } from 'bootstrap'
 import { useToast } from 'vue-toastification'
-import { exportPOExcel } from '@/utils/excelExport'
-
-// ─── Konstanta ────────────────────────────────────────────────────────────────
-
-const PAYMENT_CASH   = 'cash'
-const PAYMENT_KREDIT = 'kredit'
-
-const STATUS_LABELS = {
-  draft:            'Draft',
-  sent_to_vendor:   'Dikirim ke Vendor',
-  partial_received: 'Diterima Sebagian',
-  completed:        'Selesai',
-  cancelled:        'Dibatalkan',
-}
-
-const STATUS_CLASSES = {
-  draft:            'bg-secondary',
-  sent_to_vendor:   'bg-info text-dark',
-  partial_received: 'bg-warning text-dark',
-  completed:        'bg-success',
-  cancelled:        'bg-danger',
-}
-
-const WAREHOUSE_COLORS = ['#0d6efd','#198754','#dc3545','#fd7e14','#6f42c1','#20c997']
-
-// ─── Globals ──────────────────────────────────────────────────────────────────
+import { useAuthStore } from '@/store/auth'
+import { useRealtime } from '@/composables/useRealtime'
+import { useSignerPicker } from '@/composables/useSignerPicker'
+import SignerPickerModal from '@/components/SignerPickerModal.vue'
+import PartNumberEditButton from '@/components/PartNumberEditButton.vue'
 
 const toast = useToast()
-const can   = (p) => window.__permissions?.includes(p) ?? true
+const auth = useAuthStore()
+const { listenPurchaseOrder, stopPurchaseOrder } = useRealtime()
+const can = (p) => auth.hasPermission(p)
 
-let debounceTimer = null
-let pmTimer       = null
+// ── Signer Picker ───────────────────────────────────────────────────
+const { showSignerModal, signers, openSignerPicker } = useSignerPicker()
+let pendingPrintPO = null
 
-// ─── State: list & summary ────────────────────────────────────────────────────
-
+// ── State ────────────────────────────────────────────────────────────
 const list    = ref([])
-const summary = ref(null)
 const loading = ref(false)
 const saving  = ref(false)
+const summary = ref(null)
 const meta    = ref({ total: 0, page: 1, last_page: 1 })
 
-// ─── State: filter ────────────────────────────────────────────────────────────
-
-const DEFAULT_FILTERS = () => ({
-  search:       '',
-  status:       '',
+const filters = ref({
+  search: '',
+  status: '',
   payment_type: '',
-  date_from:    '',
-  date_to:      '',
-  overdue:      false,
-  near_due:     false,
+  date_from: '',
+  date_to: '',
+  overdue: false,
+  near_due: false,
 })
 
-const filters = ref(DEFAULT_FILTERS())
+const selectedPO  = ref(null)
+const warehouses  = ref([])
 
-// ─── State: PM selector ───────────────────────────────────────────────────────
-
-const availablePMs      = ref([])
-const selectedPMIds     = ref([])
-const selectedPMs       = ref([])
-const warehouses        = ref([])
-const pmLoading         = ref(false)
-const pmSearch          = ref('')
+// ── Create PO ────────────────────────────────────────────────────────
+const createStep     = ref(1)
+const availablePMs   = ref([])
+const selectedPMIds  = ref([])
+const selectedPMs    = ref([])
+const pmSearch       = ref('')
 const pmWarehouseFilter = ref('')
+const pmLoading      = ref(false)
+let pmTimer = null
 
-// ─── State: modal / form ──────────────────────────────────────────────────────
-
-const selectedPO = ref(null)
-const createStep = ref(1)
-
-const DEFAULT_CREATE_FORM = () => ({
-  vendor_name:       '',
-  vendor_contact:    '',
-  warehouse_id:      '',
-  expected_date:     '',
-  notes:             '',
-  diskon_persen:     0,
-  ppn_percent:       0,
-  items:             [],
-  payment_type:      PAYMENT_CASH,
+const createForm = ref({
+  vendor_name: '',
+  vendor_contact: '',
+  expected_date: '',
+  notes: '',
+  payment_type: 'cash',
   payment_term_days: 30,
+  diskon_persen: 0,
+  ppn_percent: 0,
+  items: [],
 })
 
-const createForm = ref(DEFAULT_CREATE_FORM())
-
-const DEFAULT_SJ_FORM = () => ({
-  vendor_name: '', received_date: '', driver_name: '', vehicle_plate: '', notes: '', items: [],
+// ── Surat Jalan Form ─────────────────────────────────────────────────
+const sjForm = ref({
+  vendor_name: '',
+  received_date: '',
+  driver_name: '',
+  vehicle_plate: '',
+  notes: '',
+  items: [],
 })
 
-const sjForm = ref(DEFAULT_SJ_FORM())
+// ── Modals ───────────────────────────────────────────────────────────
+let modalDetail = null
+let modalCreate = null
+let modalSJ     = null
 
-// ─── Computed: status helpers ─────────────────────────────────────────────────
+let timer = null
 
-const statusLabel = (s) => STATUS_LABELS[s] || s
-const statusClass = (s) => STATUS_CLASSES[s] || 'bg-secondary'
+// ── Computed ─────────────────────────────────────────────────────────
+const selectableItems = computed(() =>
+  createForm.value.items.filter(i => {
+    const remaining = i.qty_pm - (i.qty_already_ordered || 0)
+    return remaining > 0
+  })
+)
 
-// ─── Computed: overdue / near-due helpers ─────────────────────────────────────
-
-function isOverdueRow(po) {
-  return po.payment_type === PAYMENT_KREDIT
-    && !!po.payment_due_date
-    && new Date(po.payment_due_date) < new Date(new Date().toDateString())
-}
-
-function isNearDueRow(po) {
-  if (po.payment_type !== PAYMENT_KREDIT || !po.payment_due_date) return false
-  const diff = (new Date(po.payment_due_date) - new Date(new Date().toDateString())) / 86400000
-  return diff >= 0 && diff <= 7
-}
-
-// ─── Computed: warehouse grouping ─────────────────────────────────────────────
-
-function getWarehouseColor(warehouseId) {
-  const ids = [...new Set(selectedPMs.value.map(p => p.warehouse?.id).filter(Boolean))]
-  return WAREHOUSE_COLORS[ids.indexOf(warehouseId) % WAREHOUSE_COLORS.length] || '#6c757d'
-}
+const hasMultipleWarehouses = computed(() => {
+  if (!selectedPMs.value.length) return false
+  const ids = [...new Set(selectedPMs.value.map(p => p.warehouse?.id))]
+  return ids.length > 1
+})
 
 const warehouseGroups = computed(() => {
   const groups = {}
-  for (const pm of selectedPMs.value) {
-    const wId = pm.warehouse?.id
-    if (!wId) continue
-    groups[wId] ??= {
-      warehouseId:   wId,
-      warehouseName: pm.warehouse?.name || '?',
-      color:         getWarehouseColor(wId),
-      items:         [],
-      pmNomors:      [],
-    }
-    groups[wId].pmNomors.push(pm.nomor)
-    groups[wId].items.push(...createForm.value.items.filter(i => i.pm_id === pm.id))
-  }
+  selectedPMs.value.forEach(pm => {
+    const wid = pm.warehouse?.id
+    if (!groups[wid]) groups[wid] = { warehouseId: wid, warehouseName: pm.warehouse?.name, pmNomors: [] }
+    groups[wid].pmNomors.push(pm.nomor)
+  })
   return Object.values(groups)
 })
-
-const hasMultipleWarehouses = computed(() => warehouseGroups.value.length > 1)
-const selectableItems       = computed(() => createForm.value.items)
-
-// ─── Computed: totals ─────────────────────────────────────────────────────────
 
 const createSubtotal = computed(() =>
   createForm.value.items
     .filter(i => i.selected)
-    .reduce((sum, i) => sum + (parseFloat(i.harga_satuan) || 0) * (parseFloat(i.qty) || 0), 0)
+    .reduce((s, i) => s + (parseFloat(i.qty || 0) * parseFloat(i.harga_satuan || 0)), 0)
 )
 
-const createDiskonAmt   = computed(() => round2(createSubtotal.value * pct(createForm.value.diskon_persen)))
-const createAfterDiskon = computed(() => createSubtotal.value - createDiskonAmt.value)
-const createPPN         = computed(() => round2(createAfterDiskon.value * pct(createForm.value.ppn_percent)))
-const createTotal       = computed(() => createAfterDiskon.value + createPPN.value)
+const createDiskonAmt = computed(() =>
+  (createSubtotal.value * (parseFloat(createForm.value.diskon_persen) || 0)) / 100
+)
+
+const createPPN = computed(() =>
+  ((createSubtotal.value - createDiskonAmt.value) * (parseFloat(createForm.value.ppn_percent) || 0)) / 100
+)
+
+const createTotal = computed(() =>
+  createSubtotal.value - createDiskonAmt.value + createPPN.value
+)
 
 const estimatedDueDate = computed(() => {
-  const days = parseInt(createForm.value.payment_term_days)
-  if (!days || days < 1) return '-'
-  return addDays(new Date(), days).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+  const days = parseInt(createForm.value.payment_term_days || 0)
+  if (!days) return '-'
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
 })
 
-// ─── Lifecycle ────────────────────────────────────────────────────────────────
+// ── Lifecycle ────────────────────────────────────────────────────────
+onMounted(async () => {
+  modalDetail = new Modal(document.getElementById('modalDetailPO'))
+  modalCreate = new Modal(document.getElementById('modalBuatPO'))
+  modalSJ     = new Modal(document.getElementById('modalSJFromPO'))
 
-onMounted(() => { loadData(); loadSummary() })
+  const [whRes] = await Promise.all([
+    axios.get('/warehouses'),
+  ])
+  warehouses.value = whRes.data.data || []
 
-// ─── Data loaders ─────────────────────────────────────────────────────────────
+  loadData()
+  loadSummary()
 
+  if (listenPurchaseOrder) listenPurchaseOrder(() => { loadData(); loadSummary() })
+})
+
+onUnmounted(() => {
+  if (stopPurchaseOrder) stopPurchaseOrder()
+})
+
+// ── Data Loading ─────────────────────────────────────────────────────
 async function loadData() {
   loading.value = true
   try {
     const params = {
       ...filters.value,
-      page:     meta.value.page,
+      page: meta.value.page,
       per_page: 15,
-      overdue:  filters.value.overdue  ? 1 : undefined,
-      near_due: filters.value.near_due ? 1 : undefined,
     }
-    const res       = await axios.get('/purchase-orders', { params })
-    list.value      = res.data.data ?? []
-    meta.value      = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
-  } catch {
+    const res = await axios.get('/purchase-orders', { params })
+    list.value = res.data.data ?? []
+    meta.value = res.data.meta ?? { total: 0, page: 1, last_page: 1 }
+  } catch (e) {
     toast.error('Gagal memuat data PO')
   } finally {
     loading.value = false
-    window.clearModalBackdrop?.()
   }
 }
 
 async function loadSummary() {
   try {
-    const res     = await axios.get('/purchase-orders/summary')
-    summary.value = res.data.data
+    const res = await axios.get('/purchase-orders/summary')
+    summary.value = res.data.data ?? res.data
   } catch {}
 }
-
-async function loadWarehouses() {
-  if (warehouses.value.length) return
-  try {
-    warehouses.value = (await axios.get('/warehouses')).data.data
-  } catch {}
-}
-
-// ─── Filter actions ───────────────────────────────────────────────────────────
 
 function debouncedLoad() {
-  clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => { meta.value.page = 1; loadData() }, 400)
+  clearTimeout(timer)
+  timer = setTimeout(() => { meta.value.page = 1; loadData() }, 400)
 }
 
 function changePage(p) { meta.value.page = p; loadData() }
 
 function resetFilters() {
-  filters.value   = DEFAULT_FILTERS()
+  filters.value = { search: '', status: '', payment_type: '', date_from: '', date_to: '', overdue: false, near_due: false }
   meta.value.page = 1
   loadData()
 }
 
 function toggleOverdue() {
-  filters.value.overdue  = !filters.value.overdue
-  filters.value.near_due = false
-  meta.value.page        = 1
+  filters.value.overdue = !filters.value.overdue
+  if (filters.value.overdue) filters.value.near_due = false
+  meta.value.page = 1
   loadData()
 }
 
 function toggleNearDue() {
   filters.value.near_due = !filters.value.near_due
-  filters.value.overdue  = false
-  meta.value.page        = 1
+  if (filters.value.near_due) filters.value.overdue = false
+  meta.value.page = 1
   loadData()
 }
 
-// ─── Detail modal ─────────────────────────────────────────────────────────────
+// ── Status Helpers ───────────────────────────────────────────────────
+const statusLabel = (s) => ({
+  draft: 'Draft',
+  sent_to_vendor: 'Dikirim ke Vendor',
+  partial_received: 'Diterima Sebagian',
+  completed: 'Selesai',
+  cancelled: 'Dibatalkan',
+}[s] || s)
 
+const statusClass = (s) => ({
+  draft: 'bg-secondary',
+  sent_to_vendor: 'bg-info text-dark',
+  partial_received: 'bg-warning text-dark',
+  completed: 'bg-success',
+  cancelled: 'bg-danger',
+}[s] || 'bg-secondary')
+
+function isOverdueRow(po) {
+  if (po.payment_type !== 'kredit' || !po.payment_due_date) return false
+  return new Date(po.payment_due_date) < new Date()
+}
+
+function isNearDueRow(po) {
+  if (po.payment_type !== 'kredit' || !po.payment_due_date) return false
+  const due = new Date(po.payment_due_date)
+  const now = new Date()
+  const diff = (due - now) / (1000 * 60 * 60 * 24)
+  return diff >= 0 && diff <= 7
+}
+
+// ── Detail ───────────────────────────────────────────────────────────
 async function openDetail(po) {
   try {
-    selectedPO.value = (await axios.get(`/purchase-orders/${po.id}`)).data.data
-    new Modal('#modalDetailPO').show()
+    const res = await axios.get(`/purchase-orders/${po.id}`)
+    selectedPO.value = res.data.data ?? res.data
   } catch {
-    toast.error('Gagal memuat detail PO')
+    selectedPO.value = po
   }
+  modalDetail.show()
 }
 
-function onPartNumberUpdated(updatedItem) {
-  if (!selectedPO.value) return
-  const idx = selectedPO.value.items.findIndex(i => i.id === updatedItem.id)
-  if (idx !== -1) {
-    selectedPO.value.items[idx] = { ...selectedPO.value.items[idx], ...updatedItem }
-  }
-}
-
-// ─── PO actions ───────────────────────────────────────────────────────────────
-
+// ── Send to Vendor ───────────────────────────────────────────────────
 async function doSend(po) {
   if (!confirm(`Kirim PO ${po.po_number} ke vendor?`)) return
   try {
     await axios.post(`/purchase-orders/${po.id}/send`)
-    toast.success('PO dikirim ke vendor')
-    loadData(); loadSummary()
+    toast.success('PO berhasil dikirim ke vendor')
+    loadData()
   } catch (e) {
     toast.error(e.response?.data?.message || 'Gagal mengirim PO')
   }
 }
 
-// ─── Surat Jalan ──────────────────────────────────────────────────────────────
+// ── Print PDF ────────────────────────────────────────────────────────
+async function printPODirect(po) {
+  pendingPrintPO = po
+  await openSignerPicker()
+}
 
-async function openSJModal(po) {
+async function printPDF(signerIds) {
+  const po = pendingPrintPO
+  if (!po) return
+  showSignerModal.value = false
+  pendingPrintPO = null
+
+  const resolvedSigners = (signerIds || []).map(id => {
+    const found = signers.value.find(s => s.id === id)
+    return found
+      ? { label: found.name, name: found.name, position: found.position || '', signature: found.signature_url || null }
+      : { label: '', name: '', position: '', signature: null }
+  })
+
+  // Fetch full detail for print
+  let fullPO = po
   try {
-    const detail   = (await axios.get(`/purchase-orders/${po.id}`)).data.data
-    selectedPO.value = detail
-    sjForm.value = {
-      ...DEFAULT_SJ_FORM(),
-      vendor_name:   po.vendor_name || '',
-      received_date: todayString(),
-      items: detail.items
-        .filter(i => (parseFloat(i.qty_received) || 0) < parseFloat(i.qty))
-        .map(i => {
-          const remaining = Math.max(0, parseFloat(i.qty) - parseFloat(i.qty_received || 0))
-          return {
-            purchase_order_item_id: i.id,
-            item_id:                i.item_id ?? null,
-            item:                   i.item ?? null,
-            nama_barang:            i.nama_barang,
-            kode_unit:              i.kode_unit,
-            tipe_unit:              i.tipe_unit,
-            qty_ordered:            i.qty,
-            qty_received_before:    i.qty_received || 0,
-            qty_remaining:          remaining,
-            qty_received:           remaining,
-            satuan:                 i.satuan,
-            harga_satuan:           i.harga_satuan,
-            keterangan:             i.keterangan,
-          }
-        }),
-    }
-    new Modal('#modalSJFromPO').show()
+    const res = await axios.get(`/purchase-orders/${po.id}`)
+    fullPO = res.data.data ?? res.data
+  } catch {}
+
+  const html = buildPOHtml(fullPO, resolvedSigners)
+  const win = window.open('', '_blank')
+  win.document.write(html)
+  win.document.close()
+  setTimeout(() => win.print(), 800)
+}
+
+function openDetailPrint(po) {
+  pendingPrintPO = po
+  openSignerPicker()
+}
+
+function escHtml(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function fmtRp(val) { return 'Rp ' + Number(val || 0).toLocaleString('id-ID') }
+function fmtDate(val) {
+  if (!val) return '-'
+  return new Date(val).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+}
+
+function buildPOHtml(po, resolvedSigners = []) {
+  const signBoxes = resolvedSigners.length
+    ? resolvedSigners.map(s => `
+        <div style="flex:1;min-width:100px;text-align:center;border:1px solid #ccc;padding:8px;border-radius:4px;">
+          <div style="font-size:8pt;font-weight:600;margin-bottom:4px;">${escHtml(s.label)}</div>
+          ${s.signature
+            ? `<div style="height:50px;"><img src="${s.signature}" style="max-height:48px;max-width:90px;"/></div>`
+            : `<div style="height:50px;"></div>`}
+          <div style="border-top:1px solid #333;padding-top:4px;font-size:8pt;">${escHtml(s.name)}</div>
+        </div>`).join('')
+    : ['Dibuat Oleh', 'Diperiksa', 'Disetujui'].map(l => `
+        <div style="flex:1;min-width:100px;text-align:center;border:1px solid #ccc;padding:8px;border-radius:4px;">
+          <div style="font-size:8pt;font-weight:600;margin-bottom:4px;">${l}</div>
+          <div style="height:50px;"></div>
+          <div style="border-top:1px solid #333;padding-top:4px;font-size:8pt;"></div>
+        </div>`).join('')
+
+  const itemRows = (po.items || []).map((item, i) => `
+    <tr style="${i % 2 ? 'background:#f8fafc;' : ''}">
+      <td style="text-align:center;border:1px solid #dee2e6;padding:6px;">${i + 1}</td>
+      <td style="font-family:monospace;color:#1a3a5c;font-weight:600;border:1px solid #dee2e6;padding:6px;">${escHtml(item.part_number || item.item?.part_number || '-')}</td>
+      <td style="font-weight:600;border:1px solid #dee2e6;padding:6px;">${escHtml(item.nama_barang)}</td>
+      <td style="text-align:center;border:1px solid #dee2e6;padding:6px;">${item.qty}</td>
+      <td style="text-align:center;border:1px solid #dee2e6;padding:6px;">${escHtml(item.satuan)}</td>
+      <td style="text-align:right;border:1px solid #dee2e6;padding:6px;">${fmtRp(item.harga_satuan)}</td>
+      <td style="text-align:right;font-weight:600;border:1px solid #dee2e6;padding:6px;">${fmtRp(item.total_harga)}</td>
+    </tr>`).join('')
+
+  return `<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<title>Purchase Order — ${escHtml(po.po_number)}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 10pt; margin: 0; padding: 20px; color: #333; }
+  @media print { body { padding: 0; } }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #1a3a5c; color: #fff; padding: 8px; text-align: left; border: 1px solid #1a3a5c; font-size: 9pt; }
+</style>
+</head>
+<body>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;border-bottom:3px solid #1a3a5c;padding-bottom:12px;">
+    <div>
+      <div style="font-size:18pt;font-weight:800;color:#1a3a5c;">PURCHASE ORDER</div>
+      <div style="font-size:11pt;color:#64748b;">${escHtml(po.po_number)}</div>
+    </div>
+    <div style="text-align:right;font-size:9pt;color:#64748b;">
+      <div>PT. Cipta Sarana Makmur</div>
+      <div>Tanggal: ${fmtDate(po.created_at)}</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:20px;margin-bottom:16px;">
+    <div style="flex:1;font-size:9pt;">
+      <div><strong>Vendor:</strong> ${escHtml(po.vendor_name || '-')}</div>
+      <div><strong>Kontak:</strong> ${escHtml(po.vendor_contact || '-')}</div>
+      <div><strong>Gudang:</strong> ${escHtml(po.warehouse?.name || '-')}</div>
+    </div>
+    <div style="flex:1;font-size:9pt;">
+      <div><strong>Status:</strong> ${statusLabel(po.status)}</div>
+      <div><strong>Pembayaran:</strong> ${po.payment_type === 'kredit' ? `Kredit ${po.payment_term_days} hari` : 'Cash'}</div>
+      ${po.payment_type === 'kredit' && po.payment_due_date ? `<div><strong>Jatuh Tempo:</strong> ${fmtDate(po.payment_due_date)}</div>` : ''}
+      <div><strong>Est. Tiba:</strong> ${fmtDate(po.expected_date)}</div>
+    </div>
+  </div>
+  <table style="margin-bottom:12px;">
+    <thead><tr>
+      <th style="width:30px;">#</th>
+      <th>Part Number</th>
+      <th>Nama Barang</th>
+      <th style="width:50px;text-align:center;">Qty</th>
+      <th style="width:50px;text-align:center;">Satuan</th>
+      <th style="width:110px;text-align:right;">Harga Satuan</th>
+      <th style="width:110px;text-align:right;">Total</th>
+    </tr></thead>
+    <tbody>${itemRows}</tbody>
+    <tfoot>
+      <tr><td colspan="6" style="text-align:right;padding:6px;border:1px solid #dee2e6;font-size:9pt;">Subtotal</td><td style="text-align:right;padding:6px;border:1px solid #dee2e6;">${fmtRp(po.items?.reduce((s, i) => s + parseFloat(i.total_harga || 0), 0))}</td></tr>
+      ${parseFloat(po.diskon_persen) > 0 ? `<tr><td colspan="6" style="text-align:right;padding:6px;border:1px solid #dee2e6;font-size:9pt;">Diskon ${po.diskon_persen}%</td><td style="text-align:right;padding:6px;border:1px solid #dee2e6;color:#dc2626;">- ${fmtRp(po.diskon_amount)}</td></tr>` : ''}
+      ${parseFloat(po.ppn_percent) > 0 ? `<tr><td colspan="6" style="text-align:right;padding:6px;border:1px solid #dee2e6;font-size:9pt;">PPN ${po.ppn_percent}%</td><td style="text-align:right;padding:6px;border:1px solid #dee2e6;color:#16a34a;">${fmtRp(po.ppn_amount)}</td></tr>` : ''}
+      <tr><td colspan="6" style="text-align:right;padding:8px;border:1px solid #1a3a5c;background:#f0f5ff;font-weight:700;">GRAND TOTAL</td><td style="text-align:right;padding:8px;border:1px solid #1a3a5c;background:#f0f5ff;font-weight:700;color:#1a3a5c;">${fmtRp(po.grand_total || po.total_amount)}</td></tr>
+    </tfoot>
+  </table>
+  ${po.notes ? `<div style="font-size:9pt;margin-bottom:16px;"><strong>Catatan:</strong> ${escHtml(po.notes)}</div>` : ''}
+  <div style="display:flex;gap:12px;margin-top:32px;">${signBoxes}</div>
+</body>
+</html>`
+}
+
+// ── Export Excel ─────────────────────────────────────────────────────
+async function exportExcel(po) {
+  try {
+    const res = await axios.get(`/purchase-orders/${po.id}`, { responseType: 'blob' })
+    // Fallback: just print the detail
+    toast.info('Fitur export Excel belum tersedia')
   } catch {
-    toast.error('Gagal memuat data PO')
+    toast.error('Gagal export')
   }
 }
 
-async function saveSJ() {
-  if (!sjForm.value.received_date) return toast.error('Isi tanggal penerimaan')
+// ── Create PO ────────────────────────────────────────────────────────
+function openCreateModal() {
+  createStep.value = 1
+  selectedPMIds.value = []
+  selectedPMs.value = []
+  createForm.value = {
+    vendor_name: '',
+    vendor_contact: '',
+    expected_date: '',
+    notes: '',
+    payment_type: 'cash',
+    payment_term_days: 30,
+    diskon_persen: 0,
+    ppn_percent: 0,
+    items: [],
+  }
+  searchPM()
+  modalCreate.show()
+}
+
+const warehouseColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']
+function getWarehouseColor(wid) {
+  const keys = [...new Set(selectedPMs.value.map(p => p.warehouse?.id))]
+  const idx = keys.indexOf(wid)
+  return warehouseColors[idx % warehouseColors.length] || '#6c757d'
+}
+
+function debouncedSearchPM() {
+  clearTimeout(pmTimer)
+  pmTimer = setTimeout(() => searchPM(), 300)
+}
+
+async function searchPM() {
+  pmLoading.value = true
+  try {
+    const res = await axios.get('/permintaan-material', {
+      params: {
+        status: 'approved,pending_purchasing,partial_ordered',
+        search: pmSearch.value,
+        warehouse_id: pmWarehouseFilter.value || undefined,
+        per_page: 50,
+        for_po: 1,
+      }
+    })
+    availablePMs.value = res.data.data ?? []
+  } catch {
+    availablePMs.value = []
+  } finally {
+    pmLoading.value = false
+  }
+}
+
+function togglePM(pm) {
+  const idx = selectedPMIds.value.indexOf(pm.id)
+  if (idx >= 0) {
+    selectedPMIds.value.splice(idx, 1)
+    selectedPMs.value = selectedPMs.value.filter(p => p.id !== pm.id)
+  } else {
+    addPM(pm)
+  }
+}
+
+function addPM(pm) {
+  if (!selectedPMIds.value.includes(pm.id)) {
+    selectedPMIds.value.push(pm.id)
+    selectedPMs.value.push(pm)
+  }
+}
+
+function removePM(pmId) {
+  selectedPMIds.value = selectedPMIds.value.filter(id => id !== pmId)
+  selectedPMs.value = selectedPMs.value.filter(p => p.id !== pmId)
+}
+
+async function goToStep2() {
+  if (!selectedPMIds.value.length) return
+  pmLoading.value = true
+  try {
+    // Fetch full PM details to get items
+    const fullPMs = await Promise.all(
+      selectedPMs.value.map(pm => axios.get(`/permintaan-material/${pm.id}`).then(r => r.data.data ?? r.data))
+    )
+    // Build items list
+    const items = []
+    fullPMs.forEach(pm => {
+      (pm.items || []).forEach(item => {
+        const qtyAlready = parseFloat(item.qty_po || item.qty_already_ordered || 0)
+        const remaining = parseFloat(item.qty) - qtyAlready
+        if (remaining > 0) {
+          items.push({
+            _key: `${pm.id}_${item.id}`,
+            pm_id: pm.id,
+            pm_item_id: item.id,
+            item_id: item.item_id || item.item?.id,
+            part_number: item.part_number || item.item?.part_number || '',
+            nama_barang: item.nama_barang || item.item?.name || '',
+            satuan: item.satuan || item.unit || '',
+            qty_pm: parseFloat(item.qty),
+            qty_already_ordered: qtyAlready,
+            qty: remaining,
+            harga_satuan: item.harga_satuan || item.item?.harga_satuan || 0,
+            selected: true,
+          })
+        }
+      })
+    })
+    createForm.value.items = items
+    createStep.value = 2
+  } catch (e) {
+    toast.error('Gagal memuat item PM')
+  } finally {
+    pmLoading.value = false
+  }
+}
+
+async function saveCreatePO() {
+  if (hasMultipleWarehouses.value) return
+  const selectedItems = createForm.value.items.filter(i => i.selected && parseFloat(i.qty) > 0)
+  if (!selectedItems.length) {
+    toast.warning('Pilih minimal 1 item')
+    return
+  }
+  if (!createForm.value.vendor_name) {
+    toast.warning('Nama vendor wajib diisi')
+    return
+  }
   saving.value = true
   try {
-    await axios.post('/surat-jalan', {
-      purchase_order_id:      selectedPO.value.id,
-      material_request_id:    selectedPO.value.material_request_id,
-      permintaan_material_id: selectedPO.value.permintaan_material_id,
-      warehouse_id:           selectedPO.value.warehouse_id,
-      vendor_name:            sjForm.value.vendor_name,
-      driver_name:            sjForm.value.driver_name,
-      vehicle_plate:          sjForm.value.vehicle_plate,
-      received_date:          sjForm.value.received_date,
-      notes:                  sjForm.value.notes,
-      items: sjForm.value.items.map(i => ({
-        purchase_order_item_id: i.purchase_order_item_id,
-        item_id:                i.item_id ?? null,
-        qty_received:           i.qty_received,
-        masuk_stok:             i.masuk_stok ?? true,
-        keterangan:             i.keterangan ?? null,
+    const payload = {
+      vendor_name: createForm.value.vendor_name,
+      vendor_contact: createForm.value.vendor_contact,
+      expected_date: createForm.value.expected_date || null,
+      notes: createForm.value.notes,
+      payment_type: createForm.value.payment_type,
+      payment_term_days: createForm.value.payment_type === 'kredit' ? createForm.value.payment_term_days : null,
+      diskon_persen: createForm.value.diskon_persen || 0,
+      ppn_percent: createForm.value.ppn_percent || 0,
+      permintaan_material_ids: selectedPMIds.value,
+      items: selectedItems.map(i => ({
+        pm_item_id: i.pm_item_id,
+        item_id: i.item_id,
+        nama_barang: i.nama_barang,
+        qty: parseFloat(i.qty),
+        satuan: i.satuan,
+        harga_satuan: parseFloat(i.harga_satuan) || 0,
       })),
+    }
+    await axios.post('/purchase-orders', payload)
+    toast.success('Purchase Order berhasil dibuat')
+    modalCreate.hide()
+    loadData()
+    loadSummary()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Gagal membuat PO')
+  } finally {
+    saving.value = false
+  }
+}
+
+// ── Surat Jalan from PO ───────────────────────────────────────────────
+function openSJModal(po) {
+  selectedPO.value = po
+  sjForm.value = {
+    vendor_name: po.vendor_name || '',
+    received_date: new Date().toISOString().slice(0, 10),
+    driver_name: '',
+    vehicle_plate: '',
+    notes: '',
+    items: (po.items || []).map(item => ({
+      po_item_id: item.id,
+      nama_barang: item.nama_barang,
+      item: item.item,
+      qty_ordered: parseFloat(item.qty),
+      qty_received_before: parseFloat(item.qty_received || 0),
+      qty_remaining: parseFloat(item.qty) - parseFloat(item.qty_received || 0),
+      qty_received: parseFloat(item.qty) - parseFloat(item.qty_received || 0),
+      satuan: item.satuan,
+    }))
+  }
+  modalSJ.show()
+}
+
+async function saveSJ() {
+  saving.value = true
+  try {
+    await axios.post(`/surat-jalan`, {
+      purchase_order_id: selectedPO.value.id,
+      vendor_name: sjForm.value.vendor_name,
+      received_date: sjForm.value.received_date,
+      driver_name: sjForm.value.driver_name,
+      vehicle_plate: sjForm.value.vehicle_plate,
+      notes: sjForm.value.notes,
+      items: sjForm.value.items.map(i => ({
+        po_item_id: i.po_item_id,
+        qty_received: parseFloat(i.qty_received) || 0,
+      }))
     })
     toast.success('Surat Jalan berhasil dibuat')
-    Modal.getInstance('#modalSJFromPO')?.hide()
+    modalSJ.hide()
     loadData()
   } catch (e) {
     toast.error(e.response?.data?.message || 'Gagal membuat Surat Jalan')
@@ -1095,300 +1364,10 @@ async function saveSJ() {
   }
 }
 
-// ─── PM selector ──────────────────────────────────────────────────────────────
-
-async function openCreateModal() {
-  createStep.value = 1
-  selectedPMIds.value = []; selectedPMs.value = []
-  pmSearch.value = ''; pmWarehouseFilter.value = ''
-  createForm.value = DEFAULT_CREATE_FORM()
-  await Promise.all([loadWarehouses(), searchPM()])
-  new Modal('#modalBuatPO').show()
-}
-
-async function searchPM() {
-  pmLoading.value = true
-  try {
-    availablePMs.value = (await axios.get('/permintaan-material', {
-      params: {
-        status:       'approved,manager_approved,partial_ordered,pending_purchasing',
-        search:       pmSearch.value   || undefined,
-        warehouse_id: pmWarehouseFilter.value || undefined,
-        per_page:     50,
-      },
-    })).data.data
-  } catch {
-    availablePMs.value = []
-  } finally {
-    pmLoading.value = false
-  }
-}
-
-function debouncedSearchPM() {
-  clearTimeout(pmTimer)
-  pmTimer = setTimeout(searchPM, 350)
-}
-
-function togglePM(pm)   { selectedPMIds.value.includes(pm.id) ? removePM(pm.id) : addPM(pm) }
-function addPM(pm)       { if (!selectedPMIds.value.includes(pm.id)) { selectedPMIds.value.push(pm.id); selectedPMs.value.push(pm) } }
-function removePM(id)    { selectedPMIds.value = selectedPMIds.value.filter(x => x !== id); selectedPMs.value = selectedPMs.value.filter(x => x.id !== id) }
-
-// ─── Step 2: load items ───────────────────────────────────────────────────────
-
-async function goToStep2() {
-  if (!selectedPMIds.value.length) return
-  pmLoading.value = true
-  try {
-    const details = await Promise.all(
-      selectedPMIds.value.map(id => axios.get(`/permintaan-material/${id}`).then(r => r.data.data))
-    )
-    selectedPMs.value      = details
-    createForm.value.items = buildItemsFromPMs(details)
-    createStep.value       = 2
-  } catch {
-    toast.error('Gagal memuat detail PM')
-  } finally {
-    pmLoading.value = false
-  }
-}
-
-function buildItemsFromPMs(pms) {
-  const items = []
-  for (const pm of pms) {
-    const allPOs = pm.purchase_orders || []
-    for (const pmItem of (pm.items || [])) {
-      const qtyOrdered = allPOs.reduce((sum, po) =>
-        sum + (po.items || [])
-          .filter(poi => poi.permintaan_material_item_id === pmItem.id)
-          .reduce((s, poi) => s + parseFloat(poi.qty || 0), 0), 0)
-      const qtyPm     = parseFloat(pmItem.qty || 0)
-      const remaining = Math.max(0, qtyPm - qtyOrdered)
-      if (remaining > 0) {
-        items.push({
-          _key:                        `${pm.id}_${pmItem.id}`,
-          pm_id:                       pm.id,
-          selected:                    true,
-          permintaan_material_item_id: pmItem.id,
-          item_id:                     pmItem.item_id ?? null,
-          part_number:                 pmItem.part_number || pmItem.item?.part_number || null,
-          nama_barang:                 pmItem.nama_barang,
-          kode_unit:                   pmItem.kode_unit,
-          tipe_unit:                   pmItem.tipe_unit,
-          qty_pm:                      qtyPm,
-          qty_already_ordered:         qtyOrdered,
-          qty:                         remaining,
-          satuan:                      pmItem.satuan,
-          harga_satuan:                0,
-          keterangan:                  pmItem.keterangan,
-        })
-      }
-    }
-  }
-  return items
-}
-
-// ─── Save PO ──────────────────────────────────────────────────────────────────
-
-async function saveCreatePO() {
-  if (hasMultipleWarehouses.value) return toast.error('PM berasal dari gudang berbeda')
-  if (!createForm.value.vendor_name)  return toast.error('Isi nama vendor/supplier')
-
-  if (createForm.value.payment_type === PAYMENT_KREDIT) {
-    if (!createForm.value.payment_term_days || createForm.value.payment_term_days < 1) {
-      return toast.error('Isi tenor (hari) untuk PO kredit')
-    }
-  }
-
-  const selectedItems = createForm.value.items.filter(i => i.selected)
-  if (!selectedItems.length) return toast.error('Pilih minimal satu item')
-
-  const warehouseId = selectedPMs.value[0]?.warehouse?.id
-  if (!warehouseId) return toast.error('Gudang PM tidak ditemukan')
-
-  saving.value = true
-  try {
-    await axios.post('/purchase-orders', buildPOPayload(selectedItems, warehouseId))
-    toast.success('Purchase Order berhasil dibuat')
-    Modal.getInstance('#modalBuatPO')?.hide()
-    loadData(); loadSummary()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'Gagal membuat Purchase Order')
-  } finally {
-    saving.value = false
-  }
-}
-
-function buildPOPayload(selectedItems, warehouseId) {
-  const f = createForm.value
-  return {
-    permintaan_material_ids: selectedPMIds.value,
-    warehouse_id:            warehouseId,
-    vendor_name:             f.vendor_name,
-    vendor_contact:          f.vendor_contact,
-    expected_date:           f.expected_date,
-    notes:                   f.notes,
-    diskon_persen:           f.diskon_persen,
-    ppn_percent:             f.ppn_percent,
-    payment_type:            f.payment_type,
-    payment_term_days:       f.payment_type === PAYMENT_KREDIT ? parseInt(f.payment_term_days) : null,
-    items: selectedItems.map(i => ({
-      item_id:                     i.item_id,
-      permintaan_material_item_id: i.permintaan_material_item_id,
-      qty_pm:      i.qty_pm,
-      part_number: i.part_number,
-      nama_barang: i.nama_barang,
-      kode_unit:   i.kode_unit,
-      tipe_unit:   i.tipe_unit,
-      qty:         i.qty,
-      satuan:      i.satuan,
-      harga_satuan:i.harga_satuan,
-      keterangan:  i.keterangan,
-    })),
-  }
-}
-
-// ─── Print helpers ────────────────────────────────────────────────────────────
-
-async function printPODirect(po) {
-  try {
-    printPDF((await axios.get(`/purchase-orders/${po.id}`)).data.data)
-  } catch {
-    toast.error('Gagal memuat data PO')
-  }
-}
-
-function printPDF(po) {
-  const win = window.open('', '_blank', 'width=900,height=700')
-  win.document.write(buildPOHtml(po))
-  win.document.close()
-  win.onload = () => { win.focus(); win.print() }
-}
-
-async function exportExcel(po) {
-  await exportPOExcel(po, toast)
-}
-
-// ─── HTML builder ─────────────────────────────────────────────────────────────
-
-function buildPOHtml(po) {
-  const subtotal   = (po.items || []).reduce((s, i) => s + parseFloat(i.total_harga || 0), 0)
-  const diskonPct  = parseFloat(po.diskon_persen) || 0
-  const diskonAmt  = parseFloat(po.diskon_amount) || 0
-  const ppnAmt     = parseFloat(po.ppn_amount) || 0
-  const grandTotal = parseFloat(po.grand_total) || subtotal
-  const mrpmList   = po.permintaan_materials?.length
-    ? po.permintaan_materials.map(p => p.nomor).join(', ')
-    : (po.material_request?.mr_number || '-')
-
-  const STATUS_COLOR = { draft:'#6c757d', sent_to_vendor:'#0dcaf0', completed:'#198754', cancelled:'#dc3545' }
-  const STATUS_TEXT  = { draft:'DRAFT', sent_to_vendor:'DIKIRIM KE VENDOR', completed:'SELESAI', cancelled:'DIBATALKAN' }
-  const statusClr    = STATUS_COLOR[po.status] || '#6c757d'
-  const statusTxt    = STATUS_TEXT[po.status]  || po.status?.toUpperCase() || ''
-  const paymentInfo  = po.payment_type === PAYMENT_KREDIT
-    ? `Kredit ${po.payment_term_days} hari — Jatuh Tempo: ${po.payment_due_date ? fmtDate(po.payment_due_date) : '-'}`
-    : 'Cash / Tunai'
-
-  const rows = (po.items || []).map((item, idx) => `
-    <tr>
-      <td class="c">${idx + 1}</td>
-      <td class="c mono">${item.item?.part_number || '-'}</td>
-      <td>${item.nama_barang || '-'}</td>
-      <td class="c">${item.kode_unit || '-'}</td>
-      <td class="c">${item.tipe_unit || '-'}</td>
-      <td class="c">${item.qty}</td>
-      <td class="c">${item.satuan}</td>
-      <td class="r">${fmtRp(item.harga_satuan)}</td>
-      <td class="r b">${fmtRp(item.total_harga)}</td>
-    </tr>`).join('')
-
-  const totalRows = [
-    `<div class="tr sub"><span>Subtotal</span><span>${fmtRp(subtotal)}</span></div>`,
-    diskonPct > 0 ? `<div class="tr" style="color:#dc3545"><span>Diskon ${diskonPct}%</span><span>- ${fmtRp(diskonAmt)}</span></div>` : '',
-    ppnAmt > 0 ? `<div class="tr" style="color:#f59e0b;font-weight:600"><span>PPN ${po.ppn_percent || 0}%</span><span>${fmtRp(ppnAmt)}</span></div>` : '',
-    `<div class="tr grand"><span>Grand Total</span><span>${fmtRp(grandTotal)}</span></div>`,
-  ].join('')
-
-  return `<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"/><title>PO ${po.po_number}</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;font-size:11px;color:#1a1a2e}
-.page{width:210mm;min-height:297mm;margin:0 auto;padding:14mm 16mm}
-.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;padding-bottom:16px;border-bottom:3px solid #1a3a5c}
-.co{font-size:20px;font-weight:800;color:#1a3a5c}.cosub{font-size:10px;color:#6c757d;margin-top:3px}
-.pono{font-size:22px;font-weight:800;color:#1a3a5c;text-align:right}
-.pill{display:inline-block;margin-top:5px;padding:3px 10px;border-radius:20px;font-size:9px;font-weight:700;text-transform:uppercase;color:#fff;background:${statusClr}}
-.grid{display:grid;grid-template-columns:1fr 1fr;border:1.5px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:14px}
-.sec{padding:12px 16px}.sec:first-child{border-right:1.5px solid #e2e8f0}
-.sl{font-size:8px;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:8px}
-.row{display:flex;justify-content:space-between;margin-bottom:4px;gap:8px}
-.lbl{color:#64748b;font-weight:500;min-width:90px}.val{font-weight:600;text-align:right}
-.pay{margin:0 0 12px;padding:7px 14px;border-radius:6px;font-size:10px;font-weight:600;background:${po.payment_type===PAYMENT_KREDIT?'#dbeafe':'#dcfce7'};color:${po.payment_type===PAYMENT_KREDIT?'#1e40af':'#166534'}}
-table{width:100%;border-collapse:collapse;font-size:10.5px}
-thead tr{background:#1a3a5c}thead th{padding:8px;color:#fff;font-weight:700;font-size:9px;text-transform:uppercase}
-tbody tr{border-bottom:1px solid #f1f5f9}tbody tr:nth-child(even){background:#f8fafc}
-td{padding:7px 8px;vertical-align:middle}td.c{text-align:center}td.r{text-align:right}td.b{font-weight:700}
-td.mono{font-family:monospace;font-size:10px;color:#1a3a5c;font-weight:600}
-.totals{margin-left:auto;width:260px}.tr{display:flex;justify-content:space-between;padding:5px 10px;font-size:11px}
-.tr.sub{border-top:1px solid #e2e8f0;color:#64748b}
-.tr.grand{background:#1a3a5c;color:#fff;border-radius:0 0 8px 8px;padding:9px 12px;font-weight:800;font-size:13px}
-.signs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:28px}
-.sbox{border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 14px}
-.slabel{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:40px}
-.sline{border-top:1.5px solid #cbd5e1;padding-top:6px;font-size:10px;font-weight:600}
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-</style></head><body><div class="page">
-  <div class="header">
-    <div><div class="co">PT. Cipta Sarana Makmur</div><div class="cosub">CSM Inventory Management System</div></div>
-    <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#6c757d">Purchase Order</div>
-      <div class="pono">${po.po_number}</div><div style="text-align:right"><span class="pill">${statusTxt}</span></div></div>
-  </div>
-  <div class="grid">
-    <div class="sec"><div class="sl">Informasi Vendor</div>
-      <div class="row"><span class="lbl">Vendor</span><span class="val">${po.vendor_name||'-'}</span></div>
-      <div class="row"><span class="lbl">Kontak</span><span class="val">${po.vendor_contact||'-'}</span></div>
-      <div class="row"><span class="lbl">No. MR / PM</span><span class="val">${mrpmList}</span></div>
-    </div>
-    <div class="sec"><div class="sl">Informasi Pengiriman</div>
-      <div class="row"><span class="lbl">Gudang</span><span class="val">${po.warehouse?.name||'-'}</span></div>
-      <div class="row"><span class="lbl">Tgl. Dibuat</span><span class="val">${fmtDate(po.created_at)}</span></div>
-      <div class="row"><span class="lbl">Est. Tiba</span><span class="val">${po.expected_date?fmtDate(po.expected_date):'-'}</span></div>
-      <div class="row"><span class="lbl">Dibuat Oleh</span><span class="val">${po.creator?.name||'-'}</span></div>
-      <div class="row"><span class="lbl">Pembayaran</span><span class="val">${po.payment_type===PAYMENT_KREDIT?'Kredit':'Cash'}</span></div>
-    </div>
-  </div>
-  <div class="pay">${paymentInfo}</div>
-  <table>
-    <thead><tr>
-      <th class="c" style="width:28px">#</th><th class="c" style="width:90px">Part Number</th>
-      <th>Nama Barang</th><th class="c" style="width:70px">Kode Unit</th>
-      <th class="c" style="width:70px">Tipe Unit</th><th class="c" style="width:40px">Qty</th>
-      <th class="c" style="width:40px">Sat.</th><th class="r" style="width:90px">Harga Satuan</th>
-      <th class="r" style="width:90px">Total</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="totals">${totalRows}</div>
-  ${po.notes?`<div style="margin-top:12px;padding:10px 14px;background:#f8fafc;border-left:3px solid #1a3a5c;border-radius:0 6px 6px 0;font-size:9.5px;color:#64748b"><strong>Catatan:</strong> ${po.notes}</div>`:''}
-  <div class="signs">
-    <div class="sbox"><div class="slabel">Ordered By</div><div class="sline">${po.creator?.name||'..................'}</div></div>
-    <div class="sbox"><div class="slabel">Logistic</div><div class="sline">..................</div></div>
-    <div class="sbox"><div class="slabel">Approved By</div><div class="sline">..................</div></div>
-  </div>
-</div></body></html>`
-}
-
-// ─── Pure utilities ───────────────────────────────────────────────────────────
-
-const round2   = (v) => Math.round(v * 100) / 100
-const pct      = (v) => (parseFloat(v) || 0) / 100
-const addDays  = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r }
-const todayString = () => new Date().toISOString().split('T')[0]
-
-function fmtRp(val) {
-  return 'Rp ' + (Number(val) || 0).toLocaleString('id-ID')
-}
-
-function fmtDate(val) {
-  if (!val) return '-'
-  return new Date(val).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+// ── Part Number Updated ───────────────────────────────────────────────
+function onPartNumberUpdated(updatedItem) {
+  if (!selectedPO.value) return
+  const idx = selectedPO.value.items?.findIndex(i => i.id === updatedItem.id)
+  if (idx >= 0) selectedPO.value.items[idx] = { ...selectedPO.value.items[idx], ...updatedItem }
 }
 </script>

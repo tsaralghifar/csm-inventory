@@ -140,6 +140,13 @@
       </div>
     </div>
 
+    <!-- Modal Pilih Penandatangan -->
+    <SignerPickerModal
+      v-model="showSignerModal"
+      :signers="signers"
+      @confirm="doPrintPM"
+    />
+
     <!-- Drawer Buat Permintaan (menggantikan modal lama) -->
     <BuatPermintaanDrawer
       v-model="showDrawer"
@@ -183,6 +190,8 @@ import { useAuthStore } from '@/store/auth'
 import axios from 'axios'
 import { useRealtime } from '@/composables/useRealtime'
 import BuatPermintaanDrawer from '@/pages/permintaan/BuatPermintaanDrawer.vue'
+import { useSignerPicker } from '@/composables/useSignerPicker'
+import SignerPickerModal from '@/components/SignerPickerModal.vue'
 
 const toast = useToast()
 const auth = useAuthStore()
@@ -201,6 +210,10 @@ const selectedPM = ref(null)
 const rejectReason = ref('')
 const showDrawer = ref(false)
 const showRejectModal = ref(false)
+
+// ── Tanda Tangan ──────────────────────────────────────────────────────
+const { showSignerModal, signers, openSignerPicker } = useSignerPicker()
+let pendingPrintData = null   // simpan data PM yang akan diprint
 let timer = null
 
 
@@ -344,7 +357,32 @@ function fmtDatePM(val) {
   return new Date(val).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
-function buildPMHtml(pm) {
+function buildSignBoxes(resolvedSigners) {
+  // Jika tidak ada signer dipilih, tampilkan kotak kosong default
+  const defaults = [
+    { label: 'Ordered by Logistic', name: '', position: '', signature: null },
+    { label: 'Received by Purchasing', name: '', position: '', signature: null },
+    { label: 'Authorized by', name: '', position: '', signature: null },
+    { label: 'Approved by', name: '', position: '', signature: null },
+  ]
+  const list = resolvedSigners.length ? resolvedSigners : defaults
+  return list.map(s => `
+    <div class="sign-box">
+      <div class="sign-label">${s.label}</div>
+      ${s.signature
+        ? `<div style="height:45px;text-align:center;"><img src="${s.signature}" style="max-height:42px;max-width:100px;" /></div>`
+        : `<div style="height:45px;"></div>`
+      }
+      <div class="sign-line">${s.name ? escHtml(s.name) : ''}${s.position ? `<div style="font-size:8px;font-weight:400;color:#94a3b8;margin-top:2px;">${escHtml(s.position)}</div>` : ''}</div>
+    </div>`
+  ).join('')
+}
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+function buildPMHtml(pm, resolvedSigners = []) {
   const isPart = pm.type === 'part'
   const statusMap = {
     draft: 'DRAFT', pending_chief: 'MENUNGGU CHIEF MEKANIK',
@@ -415,7 +453,7 @@ function buildPMHtml(pm) {
   thead th { padding: 8px; color: #fff; background: #1a3a5c; font-weight: 700; font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; border: 1px solid #1a3a5c; }
   td { padding: 7px 8px; vertical-align: middle; }
 
-  .sign-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; margin-top: 28px; }
+  .sign-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; margin-top: 28px; background: #fff; }
   .sign-box { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; }
   .sign-label { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 40px; }
   .sign-line { border-top: 1.5px solid #cbd5e1; padding-top: 6px; font-size: 10px; font-weight: 600; color: #475569; min-height: 22px; }
@@ -476,22 +514,7 @@ function buildPMHtml(pm) {
   ${pm.notes ? `<div class="notes-box"><strong>Catatan:</strong> ${pm.notes}</div>` : ''}
 
   <div class="sign-grid">
-    <div class="sign-box">
-      <div class="sign-label">Ordered by Logistic</div>
-      <div class="sign-line"></div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-label">Received by Purchasing</div>
-      <div class="sign-line"></div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-label">Authorized by</div>
-      <div class="sign-line">${pm.chiefAuthorizer?.name || ''}</div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-label">Approved by</div>
-      <div class="sign-line">${pm.approver?.name || pm.managerApprover?.name || ''}</div>
-    </div>
+    ${buildSignBoxes(resolvedSigners)}
   </div>
 
 </div>
@@ -499,16 +522,55 @@ function buildPMHtml(pm) {
 </html>`
 }
 
+// Langkah 1: fetch detail PM + buka modal pilih penandatangan
 async function printPMDirect(pm) {
   try {
     const res = await axios.get(`/permintaan-material/${pm.id}`)
-    const data = res.data.data
-    const html = buildPMHtml(data)
-    const win  = window.open('', '_blank', 'width=900,height=700')
-    win.document.write(html)
-    win.document.close()
-    win.onload = () => { win.focus(); win.print() }
+    pendingPrintData = res.data.data
+    await openSignerPicker()
   } catch { toast.error('Gagal memuat data PM') }
+}
+
+// Langkah 2: user konfirmasi signer → fetch TTD → print
+async function doPrintPM(signerIds = []) {
+  if (!pendingPrintData) return
+  const pm = pendingPrintData
+  pendingPrintData = null
+
+  // Ambil data TTD untuk signer yang dipilih
+  let resolvedSigners = []
+  if (signerIds.length) {
+    try {
+      const allSigners = signers.value
+      const LABELS = ['Dibuat oleh', 'Diperiksa oleh', 'Disetujui oleh']
+      resolvedSigners = signerIds.slice(0, 3).map((id, i) => {
+        const u = allSigners.find(s => s.id === id)
+        return u ? {
+          label:     LABELS[i] ?? `Penandatangan ${i+1}`,
+          name:      u.name,
+          position:  u.position || u.role || '',
+          // Fetch signature langsung — sudah ada di signers dari /users/signable
+          // tapi signable tidak return signature, perlu ambil dari profile endpoint
+          signature: null,  // akan di-fetch di bawah
+          id:        u.id,
+        } : null
+      }).filter(Boolean)
+
+      // Fetch signature base64 untuk setiap signer
+      const sigPromises = resolvedSigners.map(s =>
+        axios.get(`/profile-signature/${s.id}`).then(r => {
+          s.signature = r.data.data?.signature_preview ?? null
+        }).catch(() => {})
+      )
+      await Promise.allSettled(sigPromises)
+    } catch {}
+  }
+
+  const html = buildPMHtml(pm, resolvedSigners)
+  const win  = window.open('', '_blank', 'width=900,height=700')
+  win.document.write(html)
+  win.document.close()
+  win.onload = () => { win.focus(); win.print() }
 }
 
 </script>

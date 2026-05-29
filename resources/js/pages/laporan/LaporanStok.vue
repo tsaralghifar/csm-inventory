@@ -12,7 +12,7 @@
           <span v-if="exportingExcel" class="spinner-border spinner-border-sm me-1" style="width:12px;height:12px;border-width:2px;"></span>
           <i v-else class="bi bi-file-earmark-excel me-1"></i>Excel
         </button>
-        <button class="btn btn-danger btn-sm" @click="exportPdf" :disabled="exportingPdf">
+        <button class="btn btn-danger btn-sm" @click="onClickExportPdf" :disabled="exportingPdf">
           <span v-if="exportingPdf" class="spinner-border spinner-border-sm me-1" style="width:12px;height:12px;border-width:2px;"></span>
           <i v-else class="bi bi-file-earmark-pdf me-1"></i>PDF
         </button>
@@ -318,264 +318,240 @@
     </div>
 
   </div>
+  <!-- Modal Pilih Penandatangan -->
+  <SignerPickerModal
+    v-model="showSignerModal"
+    :signers="signers"
+    @confirm="exportPdf"
+  />
 </template>
-
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useToast } from 'vue-toastification'
 import { useAuthStore } from '@/store/auth'
+import { useSignerPicker } from '@/composables/useSignerPicker'
+import SignerPickerModal from '@/components/SignerPickerModal.vue'
 
-const auth = useAuthStore(); const toast = useToast()
-const warehouses = ref([]); const stocks = ref([]); const loading = ref(false); const loaded = ref(false)
-const exportingExcel = ref(false); const exportingPdf = ref(false)
-const summary = ref({ total_items: 0, total_value: 0, critical: 0, minus: 0 })
-const params = ref({ warehouse_id: '', filter: '' })
-const searchQuery = ref('')
+const toast = useToast()
+const auth  = useAuthStore()
 
+// ── Signer Picker ────────────────────────────────────────────────────
+const { showSignerModal, signers, openSignerPicker } = useSignerPicker()
+
+// ── State ────────────────────────────────────────────────────────────
+const warehouses     = ref([])
+const stocks         = ref([])
+const summary        = ref({ total_items: 0, total_value: 0, critical: 0, minus: 0 })
+const loading        = ref(false)
+const loaded         = ref(false)
+const exportingExcel = ref(false)
+const exportingPdf   = ref(false)
+const searchQuery    = ref('')
+
+const params = ref({
+  warehouse_id: '',
+  filter: '',
+})
+
+// ── Computed ─────────────────────────────────────────────────────────
 const filteredStocks = computed(() => {
-  if (!searchQuery.value.trim()) return stocks.value
-  const q = searchQuery.value.toLowerCase()
-  return stocks.value.filter(s =>
-    s.item?.name?.toLowerCase().includes(q) ||
-    s.item?.part_number?.toLowerCase().includes(q) ||
-    s.item?.brand?.toLowerCase().includes(q)
-  )
+  let list = stocks.value
+  const q = searchQuery.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter(s =>
+      s.item?.name?.toLowerCase().includes(q) ||
+      s.item?.part_number?.toLowerCase().includes(q)
+    )
+  }
+  return list
 })
 
+// ── Lifecycle ────────────────────────────────────────────────────────
 onMounted(async () => {
-  const r = await axios.get('/warehouses'); warehouses.value = r.data.data
-  if (!auth.isSuperuser && !auth.isAdminHO && auth.userWarehouseId) params.value.warehouse_id = auth.userWarehouseId
+  try {
+    const r = await axios.get('/warehouses')
+    warehouses.value = r.data.data || []
+    // Jika bukan superuser/adminHO, default ke gudang user
+    if (!auth.isSuperuser && !auth.isAdminHO && auth.userWarehouseId) {
+      params.value.warehouse_id = auth.userWarehouseId
+    }
+  } catch {
+    toast.error('Gagal memuat daftar gudang')
+  }
 })
 
-function sourceLabel(type) {
-  const map = { po: 'PO', import: 'Saldo Awal', transfer: 'Transfer', opname: 'Opname' }
-  return map[type] || type
-}
-
-
+// ── Load Data ────────────────────────────────────────────────────────
 async function load() {
   loading.value = true
   try {
-    const r = await axios.get('/reports/stock', { params: params.value })
-    stocks.value = r.data.data; summary.value = r.data.summary; loaded.value = true
-  } finally { loading.value = false }
+    const r = await axios.get('/reports/stock', {
+      params: {
+        warehouse_id: params.value.warehouse_id || undefined,
+        filter:       params.value.filter       || undefined,
+      }
+    })
+    // Tandai setiap item agar bisa expand/collapse layer
+    stocks.value  = (r.data.data || []).map(s => ({ ...s, _expanded: false }))
+    summary.value = r.data.summary || { total_items: 0, total_value: 0, critical: 0, minus: 0 }
+    loaded.value  = true
+    searchQuery.value = ''
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Gagal memuat laporan stok')
+  } finally {
+    loading.value = false
+  }
+}
+
+// ── Filter Helpers ────────────────────────────────────────────────────
+function setFilter(f) {
+  params.value.filter = params.value.filter === f ? '' : f
+  if (loaded.value) load()
 }
 
 function resetFilter() {
+  params.value = { warehouse_id: '', filter: '' }
   searchQuery.value = ''
-  params.value.filter = ''
+  stocks.value  = []
+  summary.value = { total_items: 0, total_value: 0, critical: 0, minus: 0 }
+  loaded.value  = false
 }
 
-function setFilter(type) {
-  params.value.filter = params.value.filter === type ? '' : type
+// ── Source Label ─────────────────────────────────────────────────────
+function sourceLabel(type) {
+  return {
+    purchase_order:     'PO',
+    surat_jalan:        'Surat Jalan',
+    bon_pengeluaran:    'Bon Keluar',
+    transfer:           'Transfer',
+    opname:             'Opname',
+    saldo_awal:         'Saldo Awal',
+    adjustment:         'Adj',
+  }[type] || type || '—'
 }
 
+// ── Export Excel (CSV) ───────────────────────────────────────────────
 async function exportExcel() {
+  if (!stocks.value.length) { toast.warning('Tidak ada data untuk diekspor'); return }
   exportingExcel.value = true
   try {
-  // Load xlsx-js-style (supports cell styling unlike free SheetJS)
-  if (!window._XLSXLoaded) {
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script')
-      script.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js'
-      script.onload = () => { window._XLSXLoaded = true; resolve() }
-      script.onerror = reject
-      document.head.appendChild(script)
+    const warehouseName = params.value.warehouse_id
+      ? warehouses.value.find(w => w.id == params.value.warehouse_id)?.name || 'Gudang'
+      : 'Semua Gudang'
+
+    const headers = ['No', 'Part Number', 'Nama Barang', 'Brand', 'Kategori', 'Satuan',
+      'Stok Total', 'Stok Min', 'Status',
+      'Batch', 'Ref No', 'Sumber', 'Tgl Masuk', 'Qty Batch', 'Harga Satuan (FIFO)', 'Nilai Batch']
+
+    const rows = []
+    filteredStocks.value.forEach((s, i) => {
+      const status = parseFloat(s.qty) < 0 ? 'Minus'
+        : parseFloat(s.qty) <= parseFloat(s.item?.min_stock) && parseFloat(s.item?.min_stock) > 0
+          ? 'Kritis' : 'Normal'
+
+      if (!s.layers?.length) {
+        rows.push([
+          i + 1,
+          s.item?.part_number || '',
+          s.item?.name || '',
+          s.item?.brand || '',
+          s.item?.category?.name || '',
+          s.item?.unit || '',
+          s.qty,
+          s.item?.min_stock || 0,
+          status,
+          '', '', '', '', '', '', '',
+        ])
+      } else {
+        s.layers.forEach((layer, li) => {
+          rows.push([
+            li === 0 ? i + 1 : '',
+            li === 0 ? (s.item?.part_number || '') : '',
+            li === 0 ? (s.item?.name || '') : '',
+            li === 0 ? (s.item?.brand || '') : '',
+            li === 0 ? (s.item?.category?.name || '') : '',
+            li === 0 ? (s.item?.unit || '') : '',
+            li === 0 ? s.qty : '',
+            li === 0 ? (s.item?.min_stock || 0) : '',
+            li === 0 ? status : '',
+            li + 1,
+            layer.reference_no || '',
+            sourceLabel(layer.source_type),
+            layer.tanggal_masuk || '',
+            layer.qty_sisa,
+            layer.harga_satuan,
+            layer.nilai,
+          ])
+        })
+      }
     })
+
+    const csv = [headers, ...rows]
+      .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+
+    const filename = `laporan_stok_${warehouseName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.csv`
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }))
+    a.download = filename
+    a.click()
+    toast.success('Export Excel berhasil')
+  } catch {
+    toast.error('Gagal export Excel')
+  } finally {
+    exportingExcel.value = false
   }
-  const XLSX = window.XLSX
-
-  const warehouseName = warehouses.value.find(w => w.id == params.value.warehouse_id)?.name || 'Semua Gudang'
-  const now = new Date()
-  const dateStr = now.toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' })
-  const timeStr = now.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })
-  const fmtCurrency = v => v > 0 ? 'Rp ' + Number(v).toLocaleString('id-ID') : '-'
-
-  const wb = XLSX.utils.book_new()
-  const ws = {}
-  ws['!merges'] = []
-
-  ws['!cols'] = [
-    { wch: 4 },  { wch: 16 }, { wch: 24 }, { wch: 14 }, { wch: 12 }, { wch: 18 },
-    { wch: 8 },  { wch: 8 },  { wch: 9 },  { wch: 16 }, { wch: 18 }, { wch: 10 }
-  ]
-
-  const B = (style = 'thin', color = 'D0D9E8') => ({ style, color: { rgb: color } })
-  const border = (t='thin',b='thin',l='thin',r='thin') => ({ top: B(t), bottom: B(b), left: B(l), right: B(r) })
-
-  const sc = (r, c, v, s) => {
-    const addr = XLSX.utils.encode_cell({ r, c })
-    ws[addr] = { v: v ?? '', t: typeof v === 'number' ? 'n' : 's', s: s || {} }
-  }
-  const mg = (r1,c1,r2,c2) => ws['!merges'].push({ s:{r:r1,c:c1}, e:{r:r2,c:c2} })
-
-  const S = {
-    h1: { font:{bold:true,sz:15,color:{rgb:'FFFFFF'},name:'Calibri'}, fill:{fgColor:{rgb:'1A3A5C'}}, alignment:{vertical:'center',indent:1} },
-    h2: { font:{sz:10,color:{rgb:'BFD0E8'},name:'Calibri'}, fill:{fgColor:{rgb:'243F6A'}}, alignment:{vertical:'center',indent:1} },
-    infoLbl: { font:{bold:true,sz:9,color:{rgb:'1A3A5C'}}, fill:{fgColor:{rgb:'D6E4F5'}}, alignment:{vertical:'center',indent:1}, border:border() },
-    infoVal: { font:{sz:9,color:{rgb:'1A3A5C'}}, fill:{fgColor:{rgb:'EBF3FD'}}, alignment:{vertical:'center',indent:1}, border:border() },
-    sumLblBlue:   { font:{bold:true,sz:8,color:{rgb:'1E40AF'}}, fill:{fgColor:{rgb:'DBEAFE'}}, alignment:{horizontal:'center',vertical:'center'}, border:{top:B('medium','93C5FD'),left:B('medium','93C5FD'),right:B('medium','93C5FD'),bottom:B('thin','BFD7FF')} },
-    sumLblGreen:  { font:{bold:true,sz:8,color:{rgb:'065F46'}}, fill:{fgColor:{rgb:'D1FAE5'}}, alignment:{horizontal:'center',vertical:'center'}, border:{top:B('medium','6EE7B7'),left:B('medium','6EE7B7'),right:B('medium','6EE7B7'),bottom:B('thin','A7F3D0')} },
-    sumLblYellow: { font:{bold:true,sz:8,color:{rgb:'92400E'}}, fill:{fgColor:{rgb:'FEF3C7'}}, alignment:{horizontal:'center',vertical:'center'}, border:{top:B('medium','FCD34D'),left:B('medium','FCD34D'),right:B('medium','FCD34D'),bottom:B('thin','FDE68A')} },
-    sumLblRed:    { font:{bold:true,sz:8,color:{rgb:'991B1B'}}, fill:{fgColor:{rgb:'FEE2E2'}}, alignment:{horizontal:'center',vertical:'center'}, border:{top:B('medium','FCA5A5'),left:B('medium','FCA5A5'),right:B('medium','FCA5A5'),bottom:B('thin','FECACA')} },
-    sumValBlue:   { font:{bold:true,sz:16,color:{rgb:'1D4ED8'}}, fill:{fgColor:{rgb:'EFF6FF'}}, alignment:{horizontal:'center',vertical:'center'}, border:{bottom:B('medium','93C5FD'),left:B('medium','93C5FD'),right:B('medium','93C5FD'),top:B('thin','BFD7FF')} },
-    sumValGreen:  { font:{bold:true,sz:12,color:{rgb:'047857'}}, fill:{fgColor:{rgb:'ECFDF5'}}, alignment:{horizontal:'center',vertical:'center'}, border:{bottom:B('medium','6EE7B7'),left:B('medium','6EE7B7'),right:B('medium','6EE7B7'),top:B('thin','A7F3D0')} },
-    sumValYellow: { font:{bold:true,sz:16,color:{rgb:'D97706'}}, fill:{fgColor:{rgb:'FFFBEB'}}, alignment:{horizontal:'center',vertical:'center'}, border:{bottom:B('medium','FCD34D'),left:B('medium','FCD34D'),right:B('medium','FCD34D'),top:B('thin','FDE68A')} },
-    sumValRed:    { font:{bold:true,sz:16,color:{rgb:'DC2626'}}, fill:{fgColor:{rgb:'FFF5F5'}}, alignment:{horizontal:'center',vertical:'center'}, border:{bottom:B('medium','FCA5A5'),left:B('medium','FCA5A5'),right:B('medium','FCA5A5'),top:B('thin','FECACA')} },
-    th: { font:{bold:true,sz:10,color:{rgb:'FFFFFF'},name:'Calibri'}, fill:{fgColor:{rgb:'1A3A5C'}}, alignment:{horizontal:'center',vertical:'center',wrapText:true}, border:{top:B('medium','FFFFFF'),bottom:B('medium','4A7DB5'),left:B('thin','4A7DB5'),right:B('thin','4A7DB5')} },
-    rowEven: (x={}) => ({ font:{sz:10}, fill:{fgColor:{rgb:'FFFFFF'}}, border:border(), ...x }),
-    rowOdd:  (x={}) => ({ font:{sz:10}, fill:{fgColor:{rgb:'F0F5FF'}}, border:border(), ...x }),
-    totalLbl: { font:{bold:true,sz:10,color:{rgb:'1A3A5C'}}, fill:{fgColor:{rgb:'D6E4F5'}}, alignment:{horizontal:'right',vertical:'center',indent:1}, border:{top:B('medium','1A3A5C'),bottom:B('medium','1A3A5C'),left:B('medium','1A3A5C'),right:B('thin','D0D9E8')} },
-    totalVal: { font:{bold:true,sz:11,color:{rgb:'047857'}}, fill:{fgColor:{rgb:'DCFCE7'}}, alignment:{horizontal:'right',vertical:'center'}, border:{top:B('medium','1A3A5C'),bottom:B('medium','1A3A5C'),left:B('thin','D0D9E8'),right:B('medium','1A3A5C')} },
-    totalMid: { fill:{fgColor:{rgb:'D6E4F5'}}, border:{top:B('medium','1A3A5C'),bottom:B('medium','1A3A5C'),left:B('thin','D0D9E8'),right:B('thin','D0D9E8')} },
-    totalEnd: { fill:{fgColor:{rgb:'D6E4F5'}}, border:{top:B('medium','1A3A5C'),bottom:B('medium','1A3A5C'),left:B('thin','D0D9E8'),right:B('medium','1A3A5C')} },
-    footer: { font:{sz:8,color:{rgb:'AABBCC'},italic:true}, fill:{fgColor:{rgb:'F1F5F9'}}, alignment:{horizontal:'right',vertical:'center'} },
-  }
-
-  let R = 0
-
-  // Row 0: Company header
-  for (let c=0;c<=10;c++) sc(R,c,'',S.h1)
-  sc(R,0,'PT. CIPTA SARANA MAKMUR',S.h1); mg(R,0,R,11)
-  R++
-
-  // Row 1: Title
-  for (let c=0;c<=11;c++) sc(R,c,'',S.h2)
-  sc(R,0,'LAPORAN STOK PERSEDIAAN',S.h2); mg(R,0,R,11)
-  R++
-
-  // Row 2: Info bar
-  sc(R,0,'Gudang / Site',S.infoLbl); sc(R,1,'',S.infoLbl); mg(R,0,R,1)
-  sc(R,2,warehouseName,S.infoVal); sc(R,3,'',S.infoVal); sc(R,4,'',S.infoVal); mg(R,2,R,4)
-  sc(R,5,'Tanggal Export',S.infoLbl); sc(R,6,'',S.infoLbl); mg(R,5,R,6)
-  sc(R,7,`${dateStr}  ${timeStr}`,S.infoVal); sc(R,8,'',S.infoVal); sc(R,9,'',S.infoVal); mg(R,7,R,9)
-  sc(R,10,'',S.infoVal); sc(R,11,stocks.value.length,{...S.infoVal,font:{bold:true,sz:12,color:{rgb:'1A3A5C'}},alignment:{horizontal:'center',vertical:'center'}})
-  R++
-
-  // Row 3: Summary labels
-  sc(R,0,'Total Jenis Barang',S.sumLblBlue);   sc(R,1,'',S.sumLblBlue);   sc(R,2,'',S.sumLblBlue);   mg(R,0,R,2)
-  sc(R,3,'Nilai Stok',        S.sumLblGreen);  sc(R,4,'',S.sumLblGreen);  sc(R,5,'',S.sumLblGreen);  mg(R,3,R,5)
-  sc(R,6,'Stok Kritis',       S.sumLblYellow); sc(R,7,'',S.sumLblYellow);                             mg(R,6,R,7)
-  sc(R,8,'Stok Minus',        S.sumLblRed);    sc(R,9,'',S.sumLblRed);    sc(R,10,'',S.sumLblRed);   mg(R,8,R,10)
-  R++
-
-  // Row 4: Summary values
-  sc(R,0,summary.value.total_items,             S.sumValBlue);   sc(R,1,'',S.sumValBlue);   sc(R,2,'',S.sumValBlue);   mg(R,0,R,2)
-  sc(R,3,fmtCurrency(summary.value.total_value),S.sumValGreen);  sc(R,4,'',S.sumValGreen);  sc(R,5,'',S.sumValGreen);  mg(R,3,R,5)
-  sc(R,6,summary.value.critical,                S.sumValYellow); sc(R,7,'',S.sumValYellow);                             mg(R,6,R,7)
-  sc(R,8,summary.value.minus,                   S.sumValRed);    sc(R,9,'',S.sumValRed);    sc(R,10,'',S.sumValRed);   mg(R,8,R,10)
-  R++
-
-  // Row 5: Spacer
-  R++
-
-  // Row 6: Table header
-  ;['#','Part Number','Nama Barang','Kategori','Brand','Sat.','Total Stok','Stok Min','Tgl. Masuk','Qty Batch','Harga Beli (FIFO)','Nilai Batch','Status']
-    .forEach((h,c) => sc(R,c,h,S.th))
-  R++
-
-  const totalNilai = stocks.value.reduce((acc,s) => acc + (s.layers||[]).reduce((b,l)=>b+l.nilai,0), 0)
-
-  stocks.value.forEach((s,i) => {
-    const qty=s.qty, minStock=s.item?.min_stock||0
-    const isMinus=qty<0, isKritis=!isMinus&&minStock>0&&qty<=minStock
-    const qtyColor=isMinus?'DC2626':isKritis?'D97706':'15803D'
-    const sLbl=isMinus?'Minus':isKritis?'Kritis':'Normal'
-    const sFill=isMinus?'FEE2E2':isKritis?'FEF3C7':'DCFCE7'
-    const sFont=isMinus?'DC2626':isKritis?'92400E':'15803D'
-    const layers = s.layers || []
-
-    if (layers.length === 0) {
-      const row=i%2===0?S.rowEven:S.rowOdd
-      sc(R,0,  i+1,                         row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R,1,  s.item?.part_number||'',     row({font:{bold:true,sz:10,color:{rgb:'1E3A5F'},name:'Courier New'},alignment:{vertical:'center'}}))
-      sc(R,2,  s.item?.name||'',            row({font:{bold:true,sz:10},alignment:{vertical:'center'}}))
-      sc(R,3,  s.item?.category?.name||'-', row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R,4,  s.item?.brand||'-',          row({font:{sz:9},alignment:{vertical:'center'}}))
-      sc(R,5,  s.item?.unit||'',            row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R,6,  qty,                         row({font:{bold:true,sz:11,color:{rgb:qtyColor}},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R,7,  minStock,                    row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R,8,  '-',                         row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-      sc(R,9,  '-',                         row({font:{sz:9},alignment:{horizontal:'right',vertical:'center'}}))
-      sc(R,10, '-',                         row({font:{sz:9},alignment:{horizontal:'right',vertical:'center'}}))
-      sc(R,11, '-',                         row({font:{bold:true,sz:10},alignment:{horizontal:'right',vertical:'center'}}))
-      sc(R,12, sLbl,                        row({font:{bold:true,sz:9,color:{rgb:sFont}},fill:{fgColor:{rgb:sFill}},alignment:{horizontal:'center',vertical:'center'}}))
-      R++
-    } else {
-      layers.forEach((layer, li) => {
-        const row=i%2===0?S.rowEven:S.rowOdd
-        sc(R,0,  li===0 ? i+1 : '',                    row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-        sc(R,1,  li===0 ? s.item?.part_number||'' : '', row({font:{bold:true,sz:10,color:{rgb:'1E3A5F'},name:'Courier New'},alignment:{vertical:'center'}}))
-        sc(R,2,  li===0 ? s.item?.name||'' : `  └ Batch ${li+1} (${layer.reference_no||''})`, row({font:{bold:li===0,sz:10,italic:li>0,color:{rgb:li>0?'64748B':'000000'}},alignment:{vertical:'center'}}))
-        sc(R,3,  li===0 ? s.item?.category?.name||'-' : '', row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-        sc(R,4,  li===0 ? s.item?.brand||'-' : '',     row({font:{sz:9},alignment:{vertical:'center'}}))
-        sc(R,5,  li===0 ? s.item?.unit||'' : '',        row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-        sc(R,6,  li===0 ? qty : '',                     row({font:{bold:true,sz:11,color:{rgb:qtyColor}},alignment:{horizontal:'center',vertical:'center'}}))
-        sc(R,7,  li===0 ? minStock : '',                row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-        sc(R,8,  layer.tanggal_masuk||'',               row({font:{sz:9},alignment:{horizontal:'center',vertical:'center'}}))
-        sc(R,9,  layer.qty_sisa,                        row({font:{sz:10,color:{rgb:'15803D'}},alignment:{horizontal:'right',vertical:'center'}}))
-        sc(R,10, fmtCurrency(layer.harga_satuan)+' [FIFO]', row({font:{sz:9,color:{rgb:'1E40AF'}},alignment:{horizontal:'right',vertical:'center'}}))
-        sc(R,11, layer.nilai>0?fmtCurrency(layer.nilai):'-', row({font:{bold:true,sz:10},alignment:{horizontal:'right',vertical:'center'}}))
-        sc(R,12, li===0 ? sLbl : '',                    row({font:{bold:true,sz:9,color:{rgb:sFont}},fill:{fgColor:{rgb:sFill}},alignment:{horizontal:'center',vertical:'center'}}))
-        R++
-      })
-    }
-  })
-
-  // Total row
-  sc(R,0,'TOTAL NILAI STOK',S.totalLbl); mg(R,0,R,10)
-  for(let c=1;c<=10;c++) sc(R,c,'',S.totalMid)
-  sc(R,11,fmtCurrency(totalNilai),S.totalVal)
-  sc(R,12,'',S.totalEnd)
-  R++
-
-  // Footer
-  sc(R,0,`Dicetak pada ${dateStr} pukul ${timeStr}  —  CSM Inventory System`,S.footer)
-  mg(R,0,R,11)
-
-  const rowCount = R+1
-  ws['!rows'] = Array(rowCount).fill(null).map((_,i) => {
-    if(i===0) return {hpt:32}; if(i===1) return {hpt:20}; if(i===2) return {hpt:22}
-    if(i===3) return {hpt:16}; if(i===4) return {hpt:28}; if(i===5) return {hpt:8}
-    if(i===6) return {hpt:24}; if(i===rowCount-2) return {hpt:22}; if(i===rowCount-1) return {hpt:16}
-    return {hpt:19}
-  })
-
-  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0},e:{r:R,c:11}})
-  XLSX.utils.book_append_sheet(wb, ws, 'Laporan Stok')
-  XLSX.writeFile(wb, `Laporan_Stok_${warehouseName.replace(/\s+/g,'_')}_${now.toISOString().slice(0,10)}.xlsx`)
-  toast.success('Export Excel (.xlsx) berhasil')
-  } finally { exportingExcel.value = false }
 }
 
-async function exportPdf() {
+// ── Export PDF ───────────────────────────────────────────────────────
+async function onClickExportPdf() {
+  if (!stocks.value.length) { toast.warning('Tidak ada data untuk diekspor'); return }
+  await openSignerPicker()
+}
+
+async function exportPdf(signerIds) {
+  showSignerModal.value = false
   exportingPdf.value = true
   try {
-    const warehouseName = warehouses.value.find(w => w.id == params.value.warehouse_id)?.name || 'Semua Gudang'
-    const queryParams = new URLSearchParams()
-    if (params.value.warehouse_id) queryParams.set('warehouse_id', params.value.warehouse_id)
-    if (params.value.filter) queryParams.set('filter', params.value.filter)
-    queryParams.set('warehouse_name', warehouseName)
-
-    const response = await axios.get('/reports/export-pdf?' + queryParams.toString(), {
-      responseType: 'blob'
+    const response = await axios.get('/reports/export-pdf', {
+      params: {
+        warehouse_id: params.value.warehouse_id || undefined,
+        filter:       params.value.filter       || undefined,
+        signer_ids:   signerIds?.length ? signerIds : undefined,
+      },
+      responseType: 'blob',
     })
-    const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+    const warehouseName = params.value.warehouse_id
+      ? warehouses.value.find(w => w.id == params.value.warehouse_id)?.name || 'Gudang'
+      : 'Semua_Gudang'
+    const filename = `laporan_stok_${warehouseName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.pdf`
     const a = document.createElement('a')
-    a.href = url
-    const now = new Date()
-    const dateStr = now.toISOString().slice(0,10)
-    a.download = `Laporan_Stok_${warehouseName.replace(/\s+/g,'_')}_${dateStr}.pdf`
-    document.body.appendChild(a)
+    a.href = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+    a.download = filename
     a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
     toast.success('Export PDF berhasil')
   } catch (e) {
-    toast.error('Gagal export PDF')
+    toast.error(e.response?.data?.message || 'Gagal export PDF')
   } finally {
     exportingPdf.value = false
   }
 }
 </script>
+
+<style scoped>
+.kpi-card {
+  border-radius: 10px;
+  padding: 14px 16px;
+  color: #fff;
+}
+.kpi-primary  { background: linear-gradient(135deg,#1a3a5c,#2563eb); }
+.kpi-success  { background: linear-gradient(135deg,#065f46,#10b981); }
+.kpi-warning  { background: linear-gradient(135deg,#92400e,#f59e0b); }
+.kpi-danger   { background: linear-gradient(135deg,#7f1d1d,#ef4444); }
+.kpi-label    { font-size: 0.72rem; opacity: .85; margin-bottom: 2px; }
+.kpi-value    { font-size: 1.5rem; font-weight: 800; line-height: 1.1; }
+.kpi-icon     { opacity: .6; }
+.stock-ok     { color: #16a34a; }
+.stock-low    { color: #d97706; }
+.stock-minus  { color: #dc2626; }
+</style>

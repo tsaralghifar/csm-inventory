@@ -29,9 +29,18 @@ class UserController extends Controller
 
         $users = $query->paginate($request->per_page ?? 20);
 
+        // Tambah has_signature dan signature_preview ke setiap user
+        // agar tabel & modal Edit User bisa tampilkan status TTD tanpa request tambahan
+        $items = collect($users->items())->map(function ($u) {
+            $arr = $u->toArray();
+            $arr['has_signature']     = $u->hasSignature();
+            $arr['signature_preview'] = $u->signatureDataUri();
+            return $arr;
+        });
+
         return response()->json([
             'success' => true,
-            'data'    => $users->items(),
+            'data'    => $items,
             'meta'    => ['total' => $users->total()],
         ]);
     }
@@ -355,6 +364,26 @@ class UserController extends Controller
                 'total'         => $users->count(),
                 'has_signature' => $users->where('has_signature', true)->count(),
                 'no_signature'  => $users->where('has_signature', false)->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * GET /profile-signature/{user}
+     * Ambil data tanda tangan user tertentu.
+     * Dipakai oleh frontend saat build HTML print (PM, PO) untuk embed TTD.
+     * Semua role bisa akses (bukan data sensitif, hanya gambar TTD).
+     */
+    public function getSignature(User $user): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'id'                => $user->id,
+                'name'              => $user->name,
+                'position'          => $user->position,
+                'has_signature'     => $user->hasSignature(),
+                'signature_preview' => $user->signatureDataUri(),
             ],
         ]);
     }

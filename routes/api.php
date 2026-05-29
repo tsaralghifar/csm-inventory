@@ -465,6 +465,7 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
     Route::post('/users/signature',   [UserController::class, 'uploadSignature']);
     Route::delete('/users/signature', [UserController::class, 'deleteSignature']);
     Route::get('/users/signable',     [UserController::class, 'signableUsers']);
+    Route::get('/profile-signature/{user}', [UserController::class, 'getSignature']); // fetch TTD user untuk embed di print HTML
 
     // Admin: Users & Roles
     Route::middleware('role:superuser')->group(function () {

@@ -17,7 +17,7 @@
         <button v-if="pm" class="btn btn-outline-success btn-sm" @click="exportExcel" title="Export Excel">
           <i class="bi bi-file-earmark-excel me-1"></i>Excel
         </button>
-        <button v-if="pm" class="btn btn-outline-danger btn-sm" @click="printPDF" title="Print / PDF">
+        <button v-if="pm" class="btn btn-outline-danger btn-sm" @click="onClickPrint" title="Print / PDF">
           <i class="bi bi-printer me-1"></i>Print
         </button>
       </div>
@@ -506,6 +506,13 @@
         </div>
       </div>
     </div>
+
+    <!-- Modal Pilih Penandatangan -->
+    <SignerPickerModal
+      v-model="showSignerModal"
+      :signers="signers"
+      @confirm="printPDF"
+    />
 
     <!-- ===== Modal Tolak ===== -->
     <div class="modal fade" id="modalRejectDetail" tabindex="-1">
@@ -1155,6 +1162,8 @@ import { useAuthStore } from '@/store/auth'
 import { Modal } from 'bootstrap'
 import axios from 'axios'
 import { useRealtime } from '@/composables/useRealtime'
+import { useSignerPicker } from '@/composables/useSignerPicker'
+import SignerPickerModal from '@/components/SignerPickerModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -1175,6 +1184,9 @@ const loading = ref(true)
 const acting = ref(false)
 const saving = ref(false)
 const rejectReason = ref('')
+
+// ── Tanda Tangan ──────────────────────────────────────────────────────
+const { showSignerModal, signers, openSignerPicker } = useSignerPicker()
 
 const bonForm = ref({ warehouse_id: '', issue_date: '', received_by: '', notes: '' })
 const poForm = ref({ vendor_name: '', vendor_contact: '', warehouse_id: '', expected_date: '', notes: '', diskon_persen: 0, ppn_percent: 0, items: [], payment_type: 'cash', payment_term_days: 30 })
@@ -1835,7 +1847,29 @@ function fmtD(val) {
   return new Date(val).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
-function buildHTML(data) {
+function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+function buildSignGrid(resolvedSigners) {
+  const defaults = [
+    { label: 'Ordered by Logistic',    name: '', position: '', signature: null },
+    { label: 'Received by Purchasing', name: '', position: '', signature: null },
+    { label: 'Authorized by',          name: '', position: '', signature: null },
+    { label: 'Approved by',            name: '', position: '', signature: null },
+  ]
+  const list = resolvedSigners.length ? resolvedSigners : defaults
+  return list.map(s => `
+    <div class="sb">
+      <div class="sl">${escH(s.label)}</div>
+      ${s.signature
+        ? `<div style="height:45px;text-align:center;background:#fff;"><img src="${s.signature}" style="max-height:42px;max-width:95px;" /></div>`
+        : `<div style="height:45px;"></div>`
+      }
+      <div class="sn">${s.name ? escH(s.name) : ''}${s.position ? `<div style="font-size:8px;font-weight:400;color:#94a3b8;margin-top:2px;">${escH(s.position)}</div>` : ''}</div>
+    </div>`
+  ).join('')
+}
+
+function buildHTML(data, resolvedSigners = []) {
   const isPart = data.type === 'part'
   const statusMap = {
     draft:'DRAFT', pending_chief:'MENUNGGU CHIEF MEKANIK', pending_manager:'MENUNGGU MANAGER',
@@ -1894,8 +1928,8 @@ function buildHTML(data) {
   table{width:100%;border-collapse:collapse;font-size:10.5px;}
   thead th{padding:8px;color:#fff;background:#1a3a5c;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:0.8px;border:1px solid #1a3a5c;}
   td{padding:7px 8px;vertical-align:middle;}
-  .sg{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-top:28px;}
-  .sb{border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 12px;}
+  .sg{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-top:28px;background:#fff;}
+  .sb{border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 12px;background:#fff;}
   .sl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:40px;}
   .sn{border-top:1.5px solid #cbd5e1;padding-top:6px;font-size:10px;font-weight:600;color:#475569;min-height:22px;}
   .nb{margin-top:16px;padding:9px 12px;background:#f8fafc;border-left:3px solid #1a3a5c;border-radius:0 6px 6px 0;font-size:9.5px;color:#64748b;}
@@ -1939,17 +1973,39 @@ function buildHTML(data) {
   </table>
   ${data.notes ? `<div class="nb"><strong>Catatan:</strong> ${data.notes}</div>` : ''}
   <div class="sg">
-    <div class="sb"><div class="sl">Ordered by Logistic</div><div class="sn"></div></div>
-    <div class="sb"><div class="sl">Received by Purchasing</div><div class="sn"></div></div>
-    <div class="sb"><div class="sl">Authorized by</div><div class="sn">${data.chiefAuthorizer?.name || ''}</div></div>
-    <div class="sb"><div class="sl">Approved by</div><div class="sn">${data.approver?.name || data.managerApprover?.name || ''}</div></div>
+    ${buildSignGrid(resolvedSigners)}
   </div>
 </div>
 </body></html>`
 }
 
-function printPDF() {
-  const html = buildHTML(pm.value)
+// Langkah 1: buka modal pilih penandatangan
+async function onClickPrint() {
+  await openSignerPicker()
+}
+
+// Langkah 2: user konfirmasi signer → fetch TTD → print
+async function printPDF(signerIds = []) {
+  // Resolusi signer + fetch TTD
+  let resolvedSigners = []
+  if (signerIds.length) {
+    const LABELS = ['Dibuat oleh', 'Diperiksa oleh', 'Disetujui oleh']
+    resolvedSigners = signerIds.slice(0, 3).map((id, i) => {
+      const u = signers.value.find(s => s.id === id)
+      return u ? { label: LABELS[i] ?? `Penandatangan ${i+1}`, name: u.name, position: u.position || u.role || '', signature: null, id: u.id } : null
+    }).filter(Boolean)
+
+    // Fetch base64 TTD tiap signer
+    await Promise.allSettled(
+      resolvedSigners.map(s =>
+        axios.get(`/profile-signature/${s.id}`)
+          .then(r => { s.signature = r.data.data?.signature_preview ?? null })
+          .catch(() => {})
+      )
+    )
+  }
+
+  const html = buildHTML(pm.value, resolvedSigners)
   const win  = window.open('', '_blank', 'width=900,height=700')
   win.document.write(html)
   win.document.close()
