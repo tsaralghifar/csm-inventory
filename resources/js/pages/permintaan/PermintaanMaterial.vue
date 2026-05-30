@@ -370,8 +370,8 @@ function buildSignBoxes(resolvedSigners) {
     <div class="sign-box">
       <div class="sign-label">${s.label}</div>
       ${s.signature
-        ? `<div style="height:45px;text-align:center;"><img src="${s.signature}" style="max-height:42px;max-width:100px;" /></div>`
-        : `<div style="height:45px;"></div>`
+        ? `<div style="height:90px;text-align:center;"><img src="${s.signature}" style="max-height:86px;max-width:160px;object-fit:contain;" /></div>`
+        : `<div style="height:90px;"></div>`
       }
       <div class="sign-line">${s.name ? escHtml(s.name) : ''}${s.position ? `<div style="font-size:8px;font-weight:400;color:#94a3b8;margin-top:2px;">${escHtml(s.position)}</div>` : ''}</div>
     </div>`
@@ -455,7 +455,7 @@ function buildPMHtml(pm, resolvedSigners = []) {
 
   .sign-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; margin-top: 28px; background: #fff; }
   .sign-box { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; }
-  .sign-label { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 40px; }
+  .sign-label { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 8px; }
   .sign-line { border-top: 1.5px solid #cbd5e1; padding-top: 6px; font-size: 10px; font-weight: 600; color: #475569; min-height: 22px; }
 
   .notes-box { margin-top: 16px; padding: 9px 12px; background: #f8fafc; border-left: 3px solid #1a3a5c; border-radius: 0 6px 6px 0; font-size: 9.5px; color: #64748b; }

@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
+use Illuminate\Http\UploadedFile;
 
 class UserController extends Controller
 {
@@ -194,13 +195,10 @@ class UserController extends Controller
         // ── Terima file upload ──────────────────────────────────────────
         if ($request->hasFile('signature_file')) {
             $request->validate([
-                'signature_file' => 'required|file|mimes:png,jpg,jpeg|max:2048',
+                'signature_file' => 'required|file|mimes:png,jpg,jpeg|max:3072',
             ]);
 
-            $file     = $request->file('signature_file');
-            $base64   = base64_encode(file_get_contents($file->getRealPath()));
-            $mimeType = $file->getMimeType();
-            $dataUri  = "data:{$mimeType};base64,{$base64}";
+            $dataUri = $this->processSignatureImage($request->file('signature_file'));
 
             $user->update(['signature' => $dataUri]);
 
@@ -274,13 +272,11 @@ class UserController extends Controller
         $this->authorize('manage-users');
 
         $request->validate([
-            'signature_file' => 'required|file|mimes:png,jpg,jpeg|max:2048',
+            'signature_file' => 'required|file|mimes:png,jpg,jpeg|max:3072',
         ]);
 
         $file     = $request->file('signature_file');
-        $base64   = base64_encode(file_get_contents($file->getRealPath()));
-        $mimeType = $file->getMimeType();
-        $dataUri  = "data:{$mimeType};base64,{$base64}";
+        $dataUri  = $this->processSignatureImage($file);
 
         $user->update(['signature' => $dataUri]);
 
@@ -403,5 +399,197 @@ class UserController extends Controller
                 'signature_preview' => $user->signatureDataUri(),
             ]),
         ]);
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // PRIVATE HELPER
+    // ══════════════════════════════════════════════════════════════════
+
+    /**
+     * Proses gambar TTD yang diupload:
+     * 1. Auto-crop: pangkas area transparan / putih di semua sisi (trim)
+     * 2. Resize: perbesar/perkecil agar pas di kotak PDF (maks 900×360 px)
+     * 3. Simpan sebagai PNG transparan (base64 data URI)
+     *
+     * Jika ekstensi GD tidak tersedia, fallback ke encode langsung (tidak diproses).
+     */
+    private function processSignatureImage(UploadedFile $file): string
+    {
+        // Fallback jika GD tidak ada
+        if (!extension_loaded('gd')) {
+            $base64   = base64_encode(file_get_contents($file->getRealPath()));
+            $mimeType = $file->getMimeType();
+            return "data:{$mimeType};base64,{$base64}";
+        }
+
+        $mime = $file->getMimeType();
+        $path = $file->getRealPath();
+
+        // Cek dimensi & estimasi memory sebelum load
+        $info  = @getimagesize($path);
+        $origW = $info[0] ?? 0;
+        $origH = $info[1] ?? 0;
+
+        // Estimasi memory yg dibutuhkan GD: W * H * 4 bytes (RGBA) * 2 (src+dst)
+        $estimatedBytes = $origW * $origH * 4 * 2;
+        $availableBytes = $this->getAvailableMemory();
+
+        // Jika memory tidak cukup, fallback langsung ke raw encode (skip GD)
+        if ($estimatedBytes > $availableBytes * 0.8) {
+            $base64 = base64_encode(file_get_contents($path));
+            return "data:{$mime};base64,{$base64}";
+        }
+
+        // Load gambar sesuai tipe
+        $src = match (true) {
+            str_contains($mime, 'jpeg') => imagecreatefromjpeg($path),
+            str_contains($mime, 'jpg')  => imagecreatefromjpeg($path),
+            str_contains($mime, 'png')  => imagecreatefrompng($path),
+            default                      => imagecreatefromjpeg($path),
+        };
+
+        if (!$src) {
+            // Gagal baca gambar, fallback ke raw
+            $base64 = base64_encode(file_get_contents($path));
+            return "data:{$mime};base64,{$base64}";
+        }
+
+        // ── 1. Auto-crop: buang baris/kolom putih/transparan di tepi ────
+        $src = $this->autoCropSignature($src);
+
+        // ── 2. Resize proporsional ke dalam batas 900 × 360 px ──────────
+        $TARGET_W = 900;
+        $TARGET_H = 360;
+
+        $w = imagesx($src);
+        $h = imagesy($src);
+
+        $ratio  = min($TARGET_W / $w, $TARGET_H / $h); // scale up/down agar memenuhi kotak
+        $newW   = (int) round($w * $ratio);
+        $newH   = (int) round($h * $ratio);
+
+        $dst = imagecreatetruecolor($newW, $newH);
+        imagealphablending($dst, false);
+        imagesavealpha($dst, true);
+        $transparent = imagecolorallocatealpha($dst, 255, 255, 255, 127);
+        imagefilledrectangle($dst, 0, 0, $newW, $newH, $transparent);
+        imagecopyresampled($dst, $src, 0, 0, 0, 0, $newW, $newH, $w, $h);
+
+        imagedestroy($src);
+
+        // ── 3. Encode ke PNG base64 ──────────────────────────────────────
+        ob_start();
+        imagepng($dst, null, 6); // kompresi sedang
+        $pngData = ob_get_clean();
+        imagedestroy($dst);
+
+        $base64 = base64_encode($pngData);
+        return "data:image/png;base64,{$base64}";
+    }
+
+    /**
+     * Auto-crop: potong baris & kolom yang "kosong" (putih atau transparan)
+     * dari keempat sisi gambar.
+     * Threshold: pixel dianggap kosong jika brightness > 240 atau alpha > 100.
+     */
+    private function autoCropSignature(\GdImage $img): \GdImage
+    {
+        $w = imagesx($img);
+        $h = imagesy($img);
+
+        $top    = 0;
+        $bottom = $h - 1;
+        $left   = 0;
+        $right  = $w - 1;
+
+        $isEmpty = function (int $x, int $y) use ($img): bool {
+            $rgba  = imagecolorat($img, $x, $y);
+            $alpha = ($rgba >> 24) & 0x7F; // 0=opaque, 127=transparent
+            if ($alpha > 80) return true;   // mostly transparent
+            $r = ($rgba >> 16) & 0xFF;
+            $g = ($rgba >> 8)  & 0xFF;
+            $b =  $rgba        & 0xFF;
+            return ($r > 240 && $g > 240 && $b > 240); // mostly white
+        };
+
+        // Top
+        for ($y = 0; $y < $h; $y++) {
+            $blank = true;
+            for ($x = 0; $x < $w; $x++) {
+                if (!$isEmpty($x, $y)) { $blank = false; break; }
+            }
+            if (!$blank) { $top = $y; break; }
+        }
+
+        // Bottom
+        for ($y = $h - 1; $y >= $top; $y--) {
+            $blank = true;
+            for ($x = 0; $x < $w; $x++) {
+                if (!$isEmpty($x, $y)) { $blank = false; break; }
+            }
+            if (!$blank) { $bottom = $y; break; }
+        }
+
+        // Left
+        for ($x = 0; $x < $w; $x++) {
+            $blank = true;
+            for ($y = $top; $y <= $bottom; $y++) {
+                if (!$isEmpty($x, $y)) { $blank = false; break; }
+            }
+            if (!$blank) { $left = $x; break; }
+        }
+
+        // Right
+        for ($x = $w - 1; $x >= $left; $x--) {
+            $blank = true;
+            for ($y = $top; $y <= $bottom; $y++) {
+                if (!$isEmpty($x, $y)) { $blank = false; break; }
+            }
+            if (!$blank) { $right = $x; break; }
+        }
+
+        // Tambah padding 4px di setiap sisi
+        $pad    = 4;
+        $top    = max(0, $top - $pad);
+        $bottom = min($h - 1, $bottom + $pad);
+        $left   = max(0, $left - $pad);
+        $right  = min($w - 1, $right + $pad);
+
+        $cropW = $right  - $left + 1;
+        $cropH = $bottom - $top  + 1;
+
+        // Jika tidak ada yang perlu di-crop (gambar sudah bersih)
+        if ($cropW === $w && $cropH === $h) return $img;
+
+        $cropped = imagecreatetruecolor($cropW, $cropH);
+        imagealphablending($cropped, false);
+        imagesavealpha($cropped, true);
+        $transparent = imagecolorallocatealpha($cropped, 255, 255, 255, 127);
+        imagefilledrectangle($cropped, 0, 0, $cropW, $cropH, $transparent);
+
+        imagecopy($cropped, $img, 0, 0, $left, $top, $cropW, $cropH);
+        imagedestroy($img);
+
+        return $cropped;
+    }
+
+    /**
+     * Estimasi memory PHP yang tersisa (dalam bytes).
+     */
+    private function getAvailableMemory(): int
+    {
+        $limit = ini_get('memory_limit');
+        if ($limit === '-1') return PHP_INT_MAX;
+
+        $unit  = strtolower(substr($limit, -1));
+        $value = (int) $limit;
+        $bytes = match ($unit) {
+            'g' => $value * 1024 * 1024 * 1024,
+            'm' => $value * 1024 * 1024,
+            'k' => $value * 1024,
+            default => $value,
+        };
+
+        return max(0, $bytes - memory_get_usage(true));
     }
 }

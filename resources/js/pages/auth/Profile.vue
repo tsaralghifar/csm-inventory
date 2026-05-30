@@ -36,7 +36,7 @@
         </div>
         <div class="csm-card-body">
           <p class="text-muted small mb-3">
-            Upload foto/scan tanda tangan Anda (PNG/JPG, maks. 2MB).
+            Upload foto/scan tanda tangan Anda (PNG/JPG, maks. 3MB).
             Tanda tangan ini akan otomatis muncul di PDF saat Anda dipilih sebagai penandatangan laporan.
           </p>
 
@@ -206,8 +206,8 @@ async function handleUpload(e) {
   if (!['image/png', 'image/jpeg', 'image/jpg'].includes(file.type)) {
     sigError.value = 'Hanya file PNG atau JPG yang diizinkan.'; return
   }
-  if (file.size > 2 * 1024 * 1024) {
-    sigError.value = 'Ukuran file maksimal 2MB.'; return
+  if (file.size > 3 * 1024 * 1024) {
+    sigError.value = 'Ukuran file maksimal 3MB.'; return
   }
 
   // Preview lokal sementara

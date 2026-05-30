@@ -19,13 +19,7 @@
           <div class="col-md-3">
             <select v-model="roleFilter" class="form-select form-select-sm" @change="load">
               <option value="">Semua Role</option>
-              <option value="superuser">Superuser</option>
-              <option value="admin_ho">Admin HO</option>
-              <option value="admin_site">Admin Site</option>
-              <option value="manager">Manager</option>
-              <option value="chief_mekanik">Chief Mekanik</option>
-              <option value="purchasing">Purchasing</option>
-              <option value="viewer">Viewer</option>
+              <option v-for="r in availableRoles" :key="r.value" :value="r.value">{{ r.label }}</option>
             </select>
           </div>
         </div>
@@ -121,13 +115,7 @@
                 <label class="form-label fw-semibold small">Role <span class="text-danger">*</span></label>
                 <select v-model="form.role" class="form-select form-select-sm">
                   <option value="">-- Pilih Role --</option>
-                  <option value="superuser">Superuser</option>
-                  <option value="admin_ho">Admin HO</option>
-                  <option value="admin_site">Admin Site</option>
-                  <option value="manager">Manager</option>
-                  <option value="chief_mekanik">Chief Mekanik</option>
-                  <option value="purchasing">Purchasing</option>
-                  <option value="viewer">Viewer</option>
+                  <option v-for="r in availableRoles" :key="r.value" :value="r.value">{{ r.label }}</option>
                 </select>
               </div>
               <div class="col-md-6">
@@ -146,47 +134,82 @@
 
               <!-- ══ TANDA TANGAN DIGITAL (hanya saat Edit) ══ -->
               <div class="col-12" v-if="form.id">
-                <hr class="my-1" />
-                <label class="form-label fw-semibold small mb-2">
-                  <i class="bi bi-pen me-1"></i>Tanda Tangan Digital
-                </label>
+                <hr class="my-2" />
+
+                <!-- Header -->
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                  <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-circle d-flex align-items-center justify-content-center"
+                      style="width:28px;height:28px;background:#f0f5ff;">
+                      <i class="bi bi-pen-fill" style="color:#1a3a5c;font-size:.75rem;"></i>
+                    </div>
+                    <span class="fw-semibold small" style="color:#1a3a5c;">Tanda Tangan Digital</span>
+                  </div>
+                  <span v-if="form.signature_preview"
+                    class="badge d-flex align-items-center gap-1"
+                    style="background:#d1fae5;color:#065f46;font-size:.68rem;font-weight:600;">
+                    <i class="bi bi-check-circle-fill"></i> Tersedia
+                  </span>
+                  <span v-else
+                    class="badge d-flex align-items-center gap-1"
+                    style="background:#fef3c7;color:#92400e;font-size:.68rem;font-weight:600;">
+                    <i class="bi bi-exclamation-triangle-fill"></i> Belum ada
+                  </span>
+                </div>
 
                 <!-- Preview area -->
                 <div
-                  class="border rounded-3 text-center mb-2 position-relative"
-                  :class="form.signature_preview ? 'border-success bg-light' : 'border-secondary bg-light'"
-                  style="min-height:80px;"
+                  class="rounded-3 text-center mb-2 position-relative overflow-hidden"
+                  style="border:2px dashed;transition:border-color .2s,background .2s;min-height:110px;"
+                  :style="form.signature_preview
+                    ? 'border-color:#10b981;background:#f0fdf4;'
+                    : 'border-color:#d1d5db;background:#f9fafb;'"
                 >
-                  <img
-                    v-if="form.signature_preview"
-                    :src="form.signature_preview"
-                    alt="TTD"
-                    class="p-2"
-                    style="max-height:70px; max-width:100%; object-fit:contain;"
-                  />
-                  <div v-else class="py-3 text-muted small">
-                    <i class="bi bi-exclamation-circle me-1 text-warning"></i>
-                    Belum ada tanda tangan
+                  <template v-if="form.signature_preview">
+                    <img
+                      :src="form.signature_preview"
+                      alt="Tanda Tangan"
+                      class="p-3"
+                      style="max-height:90px;max-width:100%;object-fit:contain;cursor:zoom-in;display:block;margin:auto;"
+                      @click="sigZoom = true"
+                      title="Klik untuk perbesar"
+                    />
+                    <div class="position-absolute bottom-0 end-0 m-1">
+                      <span class="badge bg-dark bg-opacity-50" style="font-size:.6rem;">
+                        <i class="bi bi-zoom-in me-1"></i>Perbesar
+                      </span>
+                    </div>
+                  </template>
+                  <div v-else class="d-flex flex-column align-items-center justify-content-center py-4 text-muted">
+                    <i class="bi bi-pen" style="font-size:2rem;opacity:.25;"></i>
+                    <div class="small mt-2" style="font-size:.78rem;">Belum ada tanda tangan</div>
+                    <div class="mt-1" style="font-size:.7rem;color:#9ca3af;">Upload file PNG/JPG</div>
                   </div>
                 </div>
 
-                <!-- Feedback TTD -->
-                <div v-if="sigError" class="alert alert-danger py-1 px-2 small mb-2">
-                  <i class="bi bi-exclamation-triangle me-1"></i>{{ sigError }}
+                <!-- Feedback -->
+                <div v-if="sigError"
+                  class="d-flex align-items-center gap-2 rounded-2 px-3 py-2 mb-2 small"
+                  style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;">
+                  <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                  <span>{{ sigError }}</span>
                 </div>
-                <div v-if="sigSuccess" class="alert alert-success py-1 px-2 small mb-2">
-                  <i class="bi bi-check-circle me-1"></i>{{ sigSuccess }}
+                <div v-if="sigSuccess"
+                  class="d-flex align-items-center gap-2 rounded-2 px-3 py-2 mb-2 small"
+                  style="background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;">
+                  <i class="bi bi-check-circle-fill flex-shrink-0"></i>
+                  <span>{{ sigSuccess }}</span>
                 </div>
 
-                <!-- Tombol upload / hapus TTD -->
-                <div class="d-flex gap-2">
+                <!-- Tombol aksi -->
+                <div class="d-flex gap-2 align-items-center">
                   <label
-                    class="btn btn-outline-primary btn-sm mb-0"
-                    :class="{ disabled: sigUploading }"
-                    style="cursor:pointer;"
+                    class="btn btn-sm mb-0 d-flex align-items-center gap-2"
+                    :class="sigUploading ? 'btn-secondary disabled' : (form.signature_preview ? 'btn-outline-primary' : 'btn-primary')"
+                    style="cursor:pointer;flex:1;justify-content:center;"
                   >
-                    <span v-if="sigUploading"><span class="csm-spinner me-1"></span></span>
-                    <i v-else class="bi bi-upload me-1"></i>
+                    <span v-if="sigUploading" class="spinner-border spinner-border-sm" style="width:13px;height:13px;border-width:2px;"></span>
+                    <i v-else :class="form.signature_preview ? 'bi bi-arrow-repeat' : 'bi bi-cloud-upload-fill'"></i>
                     {{ sigUploading ? 'Mengupload...' : (form.signature_preview ? 'Ganti TTD' : 'Upload TTD') }}
                     <input
                       ref="sigInput"
@@ -197,22 +220,51 @@
                       :disabled="sigUploading"
                     />
                   </label>
-
                   <button
                     v-if="form.signature_preview"
-                    class="btn btn-outline-danger btn-sm"
+                    class="btn btn-sm btn-outline-danger d-flex align-items-center gap-2"
                     @click="handleDeleteFor"
                     :disabled="sigDeleting"
                   >
-                    <span v-if="sigDeleting"><span class="csm-spinner me-1"></span></span>
-                    <i v-else class="bi bi-trash me-1"></i>
-                    {{ sigDeleting ? 'Menghapus...' : 'Hapus TTD' }}
+                    <span v-if="sigDeleting" class="spinner-border spinner-border-sm" style="width:13px;height:13px;border-width:2px;"></span>
+                    <i v-else class="bi bi-trash3"></i>
+                    {{ sigDeleting ? 'Menghapus...' : 'Hapus' }}
                   </button>
                 </div>
-                <div class="text-muted mt-1" style="font-size:11px;">
-                  PNG/JPG, maks. 2MB. User juga bisa upload sendiri di halaman Profil.
+
+                <!-- Info box -->
+                <div class="d-flex align-items-start gap-2 mt-2 rounded-2 px-3 py-2"
+                  style="background:#eff6ff;border:1px solid #bfdbfe;font-size:.7rem;color:#1e40af;">
+                  <i class="bi bi-info-circle-fill mt-1 flex-shrink-0"></i>
+                  <span>PNG/JPG, maks. 3MB. Gunakan latar transparan untuk hasil terbaik. User juga bisa upload sendiri di halaman <strong>Profil</strong>.</span>
                 </div>
               </div>
+
+              <!-- Lightbox zoom TTD -->
+              <Teleport to="body">
+                <div
+                  v-if="sigZoom && form.signature_preview"
+                  class="position-fixed d-flex align-items-center justify-content-center"
+                  style="inset:0;z-index:9999;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);"
+                  @click="sigZoom = false"
+                >
+                  <div class="position-relative" @click.stop>
+                    <button
+                      class="btn btn-sm btn-light position-absolute"
+                      style="top:-14px;right:-14px;width:32px;height:32px;padding:0;border-radius:50%;z-index:1;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.3);"
+                      @click="sigZoom = false"
+                    ><i class="bi bi-x-lg" style="font-size:.75rem;"></i></button>
+                    <img
+                      :src="form.signature_preview"
+                      alt="Tanda Tangan"
+                      style="max-height:80vh;max-width:90vw;object-fit:contain;border-radius:12px;background:#fff;padding:28px;box-shadow:0 8px 40px rgba(0,0,0,.5);"
+                    />
+                    <div class="text-center mt-2" style="color:#cbd5e1;font-size:.72rem;">
+                      <i class="bi bi-x-circle me-1"></i>Klik di luar gambar atau tombol × untuk menutup
+                    </div>
+                  </div>
+                </div>
+              </Teleport>
 
             </div>
           </div>
@@ -285,16 +337,44 @@ const sigDeleting  = ref(false)
 const sigError     = ref(null)
 const sigSuccess   = ref(null)
 const sigInput     = ref(null)
+const sigZoom      = ref(false)
 
 let userModal  = null
 let resetModal = null
 let timer      = null
 
+const availableRoles = ref([])
+
 onMounted(async () => {
   userModal  = new Modal(document.getElementById('userModal'))
   resetModal = new Modal(document.getElementById('resetPwdModal'))
-  const r = await axios.get('/warehouses')
-  warehouses.value = r.data.data
+  const [warehousesRes, rolesRes] = await Promise.all([
+    axios.get('/warehouses'),
+    axios.get('/roles').catch(() => ({ data: { data: [] } })),
+  ])
+  warehouses.value = warehousesRes.data.data
+  // Build availableRoles dari API — otomatis include role baru tanpa perlu edit frontend
+  const apiRoles = rolesRes.data.data || rolesRes.data || []
+  if (apiRoles.length) {
+    availableRoles.value = apiRoles.map(r => ({
+      value: r.name,
+      label: roleLabel(r.name),
+    }))
+  } else {
+    // Fallback statis jika endpoint /roles tidak tersedia
+    availableRoles.value = [
+      { value: 'superuser',     label: 'Superuser' },
+      { value: 'admin_ho',      label: 'Admin HO' },
+      { value: 'admin_site',    label: 'Admin Site' },
+      { value: 'manager',       label: 'Manager' },
+      { value: 'chief_mekanik', label: 'Chief Mekanik' },
+      { value: 'purchasing',    label: 'Purchasing' },
+      { value: 'accounting',    label: 'Accounting' },
+      { value: 'viewer',        label: 'Viewer' },
+      { value: 'logistik_ho',   label: 'Logistik HO' },
+      { value: 'logistik_site', label: 'Logistik Site' },
+    ]
+  }
   load()
   listenUsers(() => load())
 })
@@ -325,12 +405,26 @@ function roleClass(r) {
   const m = {
     superuser:'bg-danger', admin_ho:'bg-primary', admin_site:'bg-info text-dark',
     manager:'bg-success', chief_mekanik:'bg-warning text-dark',
-    purchasing:'bg-dark', viewer:'bg-secondary'
+    purchasing:'bg-dark', viewer:'bg-secondary',
+    accounting:'bg-purple',
+    logistik_ho:'bg-teal', logistik_site:'bg-orange',
   }
   return m[r] || 'bg-secondary'
 }
 
-function clearSigFeedback() { sigError.value = null; sigSuccess.value = null }
+// Label display per role — fallback ke nama role jika tidak ada di map
+function roleLabel(name) {
+  const m = {
+    superuser: 'Superuser', admin_ho: 'Admin HO', admin_site: 'Admin Site',
+    manager: 'Manager', chief_mekanik: 'Chief Mekanik',
+    purchasing: 'Purchasing', viewer: 'Viewer',
+    accounting: 'Accounting',
+    logistik_ho: 'Logistik HO', logistik_site: 'Logistik Site',
+  }
+  return m[name] || name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function clearSigFeedback() { sigError.value = null; sigSuccess.value = null; sigZoom.value = false }
 
 function openModal(u = null) {
   clearSigFeedback()
@@ -389,8 +483,8 @@ async function handleUploadFor(e) {
   if (!['image/png', 'image/jpeg', 'image/jpg'].includes(file.type)) {
     sigError.value = 'Hanya file PNG atau JPG yang diizinkan.'; return
   }
-  if (file.size > 2 * 1024 * 1024) {
-    sigError.value = 'Ukuran file maksimal 2MB.'; return
+  if (file.size > 3 * 1024 * 1024) {
+    sigError.value = 'Ukuran file maksimal 3MB.'; return
   }
 
   // Preview lokal sementara
@@ -476,3 +570,8 @@ async function deleteUser(u) {
   }
 }
 </script>
+<style scoped>
+.bg-teal   { background-color: #0d9488 !important; color: #fff !important; }
+.bg-orange { background-color: #ea580c !important; color: #fff !important; }
+.bg-purple { background-color: #7c3aed !important; color: #fff !important; }
+</style>

@@ -198,6 +198,10 @@ class RolePermissionSeeder extends Seeder
                 'view-reports',
                 'view-units',
             ],
+
+            // Role baru: permission dikosongkan, superuser yang menentukan via UI
+            'logistik_ho'   => [],
+            'logistik_site' => [],
         ];
 
         foreach ($rolePermissions as $roleName => $perms) {

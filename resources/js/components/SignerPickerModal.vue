@@ -31,101 +31,141 @@
         <div class="signer-box">
 
           <!-- Header -->
-          <div class="modal-header border-bottom">
-            <h6 class="modal-title fw-bold">
-              <i class="bi bi-pen me-2 text-primary"></i>Pilih Penandatangan PDF
-            </h6>
-            <button type="button" class="btn-close" @click="$emit('update:modelValue', false)"></button>
+          <div class="signer-header">
+            <div class="header-icon-wrap">
+              <i class="bi bi-pen-fill"></i>
+            </div>
+            <div>
+              <h6 class="header-title">Pilih Penandatangan PDF</h6>
+              <p class="header-sub">Pilih hingga <strong>{{ maxSigners }}</strong> penandatangan. Urutan menentukan posisi di PDF.</p>
+            </div>
+            <button class="close-btn" @click="$emit('update:modelValue', false)">
+              <i class="bi bi-x-lg"></i>
+            </button>
           </div>
 
-          <!-- Slot yang sudah dipilih -->
-          <div class="p-3 pb-1">
-            <p class="text-muted small mb-2">
-              Pilih hingga <strong>{{ maxSigners }}</strong> penandatangan.
-              Urutan menentukan posisi di PDF.
-            </p>
+          <div class="signer-body">
 
-            <!-- Slot kosong / terisi -->
-            <div class="d-flex flex-column gap-1 mb-3" style="min-height:80px;">
-              <div v-if="!selected.length" class="border border-dashed rounded-3 text-center py-3 text-muted small">
-                Belum ada penandatangan — PDF akan menggunakan placeholder kosong
+            <!-- Slot Preview -->
+            <div class="slot-section">
+              <div class="section-label">
+                <i class="bi bi-layout-three-columns me-1"></i>
+                Urutan Tanda Tangan
               </div>
-              <div
-                v-for="(u, idx) in selected"
-                :key="u.id"
-                class="d-flex align-items-center gap-2 px-3 py-2 rounded-3 border"
-                :class="slotClass(idx)"
-              >
-                <span class="fw-semibold small" style="min-width:105px;">{{ SLOT_LABELS[idx] }}</span>
-                <span class="flex-fill fw-medium small text-truncate">{{ u.name }}</span>
-                <span class="text-muted small d-none d-sm-block text-truncate" style="max-width:120px;">{{ u.position || u.role }}</span>
-                <!-- Reorder -->
-                <button class="btn btn-xs p-0 px-1 text-muted" @click="moveUp(idx)" :disabled="idx===0">↑</button>
-                <button class="btn btn-xs p-0 px-1 text-muted" @click="moveDown(idx)" :disabled="idx===selected.length-1">↓</button>
-                <button class="btn btn-xs p-0 px-1 text-danger" @click="remove(u.id)">
-                  <i class="bi bi-x"></i>
+
+              <div class="slots-container">
+                <TransitionGroup name="slot-anim" tag="div" class="slots-list">
+                  <div
+                    v-for="(u, idx) in filledSlots"
+                    :key="'slot-' + idx"
+                    class="slot-card"
+                    :class="'slot-' + idx"
+                  >
+                    <div class="slot-number">{{ idx + 1 }}</div>
+                    <div class="slot-info" v-if="u">
+                      <div class="slot-avatar" :class="'avatar-' + idx">
+                        {{ u.name?.charAt(0)?.toUpperCase() }}
+                      </div>
+                      <div class="slot-text">
+                        <div class="slot-label-sm">{{ SLOT_LABELS[idx] }}</div>
+                        <div class="slot-name">{{ u.name }}</div>
+                        <div class="slot-role">{{ u.position || u.role }}</div>
+                      </div>
+                      <div class="slot-actions">
+                        <button class="slot-btn" @click="moveUp(idx)" :disabled="idx === 0" title="Naik">
+                          <i class="bi bi-chevron-up"></i>
+                        </button>
+                        <button class="slot-btn" @click="moveDown(idx)" :disabled="idx >= selected.length - 1" title="Turun">
+                          <i class="bi bi-chevron-down"></i>
+                        </button>
+                        <button class="slot-btn slot-btn-remove" @click="remove(u.id)" title="Hapus">
+                          <i class="bi bi-x"></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="slot-empty" v-else>
+                      <div class="slot-avatar-empty">
+                        <i class="bi bi-person-dash"></i>
+                      </div>
+                      <div class="slot-text">
+                        <div class="slot-label-sm">{{ SLOT_LABELS[idx] }}</div>
+                        <div class="slot-empty-hint">Belum dipilih</div>
+                      </div>
+                    </div>
+                  </div>
+                </TransitionGroup>
+              </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="section-divider"></div>
+
+            <!-- User List -->
+            <div class="users-section">
+              <div class="section-label">
+                <i class="bi bi-people-fill me-1"></i>
+                User dengan Tanda Tangan Tersedia
+              </div>
+
+              <div v-if="!signers.length" class="empty-state">
+                <div class="empty-icon"><i class="bi bi-exclamation-circle"></i></div>
+                <div class="empty-text">Belum ada user yang mengupload tanda tangan.</div>
+                <div class="empty-sub">Minta setiap user upload TTD di halaman <strong>Profil</strong>.</div>
+              </div>
+
+              <div v-else class="users-list">
+                <button
+                  v-for="u in signers"
+                  :key="u.id"
+                  type="button"
+                  class="user-row"
+                  :class="{
+                    'user-selected': isSelected(u.id),
+                    ['user-slot-' + selected.findIndex(s => s.id === u.id)]: isSelected(u.id),
+                    'user-disabled': isDisabled(u.id),
+                  }"
+                  :disabled="isDisabled(u.id)"
+                  @click="toggle(u)"
+                >
+                  <div class="user-avatar"
+                    :class="isSelected(u.id) ? 'avatar-' + selected.findIndex(s => s.id === u.id) : 'avatar-default'"
+                  >
+                    {{ u.name?.charAt(0)?.toUpperCase() }}
+                  </div>
+                  <div class="user-info">
+                    <div class="user-name">{{ u.name }}</div>
+                    <div class="user-meta">{{ u.position || u.role }}<span v-if="u.warehouse" class="user-warehouse"> · {{ u.warehouse }}</span></div>
+                  </div>
+                  <div class="user-badge-wrap">
+                    <span v-if="isSelected(u.id)" class="slot-badge" :class="'badge-slot-' + selected.findIndex(s => s.id === u.id)">
+                      <i class="bi bi-check2 me-1"></i>Slot {{ selected.findIndex(s => s.id === u.id) + 1 }}
+                    </span>
+                    <span v-else-if="!isDisabled(u.id)" class="add-hint">
+                      <i class="bi bi-plus"></i>
+                    </span>
+                  </div>
                 </button>
               </div>
-            </div>
-
-            <!-- Daftar user tersedia -->
-            <p class="small fw-semibold text-muted text-uppercase mb-1" style="font-size:10px;letter-spacing:.5px;">
-              User dengan tanda tangan tersedia
-            </p>
-
-            <!-- Kosong / loading -->
-            <div v-if="!signers.length" class="alert alert-warning py-2 small mb-0">
-              <i class="bi bi-exclamation-triangle me-1"></i>
-              Belum ada user yang mengupload tanda tangan.
-              Minta setiap user upload TTD di halaman <strong>Profil</strong>.
-            </div>
-
-            <div v-else class="border rounded-3 overflow-auto" style="max-height:210px;">
-              <button
-                v-for="u in signers"
-                :key="u.id"
-                type="button"
-                class="d-flex align-items-center gap-3 w-100 px-3 py-2 text-start border-bottom border-light"
-                :class="isSelected(u.id)
-                  ? slotClass(selected.findIndex(s=>s.id===u.id)) + ' border-0'
-                  : isDisabled(u.id) ? 'bg-light text-muted' : 'bg-white'"
-                :disabled="isDisabled(u.id)"
-                @click="toggle(u)"
-                style="font-size:12px;"
-              >
-                <!-- Avatar inisial -->
-                <div
-                  class="rounded-circle d-flex align-items-center justify-content-center fw-bold text-white flex-shrink-0"
-                  :class="isSelected(u.id) ? avatarClass(selected.findIndex(s=>s.id===u.id)) : 'bg-secondary'"
-                  style="width:30px;height:30px;font-size:11px;"
-                >
-                  {{ u.name?.charAt(0)?.toUpperCase() }}
-                </div>
-                <div class="flex-fill min-w-0">
-                  <div class="fw-semibold text-truncate">{{ u.name }}</div>
-                  <div class="text-muted" style="font-size:11px;">{{ u.position || u.role }}</div>
-                </div>
-                <span v-if="u.warehouse" class="text-muted d-none d-sm-block" style="font-size:11px;">{{ u.warehouse }}</span>
-                <!-- Slot badge -->
-                <span
-                  v-if="isSelected(u.id)"
-                  class="badge flex-shrink-0"
-                  :class="slotBadgeClass(selected.findIndex(s=>s.id===u.id))"
-                  style="font-size:10px;"
-                >
-                  Slot {{ selected.findIndex(s=>s.id===u.id)+1 }}
-                </span>
-              </button>
             </div>
           </div>
 
           <!-- Footer -->
-          <div class="modal-footer border-top d-flex align-items-center justify-content-between">
-            <span class="text-muted small">{{ selected.length }}/{{ maxSigners }} dipilih</span>
-            <div class="d-flex gap-2">
-              <button class="btn btn-secondary btn-sm" @click="$emit('update:modelValue', false)">Batal</button>
-              <button class="btn btn-danger btn-sm" @click="confirm">
-                <i class="bi bi-file-earmark-pdf me-1"></i>Export PDF
+          <div class="signer-footer">
+            <div class="progress-info">
+              <div class="progress-dots">
+                <span
+                  v-for="n in maxSigners"
+                  :key="n"
+                  class="progress-dot"
+                  :class="{ 'dot-filled': n <= selected.length, ['dot-color-' + (n - 1)]: n <= selected.length }"
+                ></span>
+              </div>
+              <span class="progress-text">{{ selected.length }}/{{ maxSigners }} dipilih</span>
+            </div>
+            <div class="footer-actions">
+              <button class="btn-cancel" @click="$emit('update:modelValue', false)">Batal</button>
+              <button class="btn-confirm" @click="confirm">
+                <i class="bi bi-file-earmark-pdf-fill me-1"></i>Export PDF
               </button>
             </div>
           </div>
@@ -137,7 +177,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -145,10 +185,17 @@ const props = defineProps({
   maxSigners: { type: Number,  default: 3 },
 })
 
-const emit    = defineEmits(['update:modelValue', 'confirm'])
+const emit     = defineEmits(['update:modelValue', 'confirm'])
 const selected = ref([])
 
 const SLOT_LABELS = ['Dibuat oleh', 'Diperiksa oleh', 'Disetujui oleh']
+
+// Filled slots — always show maxSigners rows (filled + empty placeholders)
+const filledSlots = computed(() => {
+  const arr = [...selected.value]
+  while (arr.length < props.maxSigners) arr.push(null)
+  return arr
+})
 
 // Reset pilihan setiap kali modal dibuka
 watch(() => props.modelValue, (val) => { if (val) selected.value = [] })
@@ -172,34 +219,293 @@ function confirm() {
   emit('confirm', selected.value.map(u => u.id))
   emit('update:modelValue', false)
 }
-
-// Styling per slot
-const SLOT_CLASSES   = ['bg-primary bg-opacity-10 border-primary',    'bg-purple bg-opacity-10 border-secondary', 'bg-success bg-opacity-10 border-success']
-const AVATAR_CLASSES = ['bg-primary', 'bg-secondary',  'bg-success']
-const BADGE_CLASSES  = ['bg-primary', 'bg-secondary',  'bg-success']
-
-const slotClass      = (idx) => SLOT_CLASSES[idx]   ?? 'bg-light'
-const avatarClass    = (idx) => AVATAR_CLASSES[idx] ?? 'bg-secondary'
-const slotBadgeClass = (idx) => BADGE_CLASSES[idx]  ?? 'bg-secondary'
 </script>
 
 <style scoped>
+/* ── Overlay & Box ─────────────────────────────────────────────── */
 .signer-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,.5);
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
   z-index: 1060;
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
 }
 .signer-box {
   background: #fff;
-  border-radius: 12px;
-  width: 100%; max-width: 520px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.2);
+  border-radius: 16px;
+  width: 100%; max-width: 540px;
+  box-shadow: 0 24px 80px rgba(15,23,42,.22), 0 4px 16px rgba(15,23,42,.08);
   max-height: 90vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Header ────────────────────────────────────────────────────── */
+.signer-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  background: linear-gradient(135deg, #f8faff 0%, #f0f4ff 100%);
+  border-radius: 16px 16px 0 0;
+}
+.header-icon-wrap {
+  width: 38px; height: 38px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 16px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(99,102,241,.35);
+}
+.header-title {
+  font-size: 15px; font-weight: 700;
+  color: #0f172a; margin: 0 0 2px;
+}
+.header-sub {
+  font-size: 12px; color: #64748b; margin: 0;
+}
+.header-sub strong { color: #3b82f6; }
+.close-btn {
+  margin-left: auto; background: none; border: none;
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: #94a3b8; font-size: 14px;
+  cursor: pointer; transition: all .15s;
+  flex-shrink: 0;
+}
+.close-btn:hover { background: #f1f5f9; color: #475569; }
+
+/* ── Body ──────────────────────────────────────────────────────── */
+.signer-body {
+  flex: 1; overflow-y: auto;
+  padding: 0;
+}
+
+.section-label {
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: .6px; text-transform: uppercase;
+  color: #94a3b8; margin-bottom: 10px;
+}
+
+/* ── Slot Section ──────────────────────────────────────────────── */
+.slot-section { padding: 16px 20px 12px; }
+
+.slots-list { display: flex; flex-direction: column; gap: 6px; }
+
+.slot-card {
+  display: flex; align-items: center;
+  gap: 10px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  padding: 10px 12px;
+  background: #fafafa;
+  transition: all .2s;
+}
+
+/* Slot colors */
+.slot-0 { border-color: #bfdbfe; background: #eff6ff; }
+.slot-1 { border-color: #c4b5fd; background: #f5f3ff; }
+.slot-2 { border-color: #a7f3d0; background: #f0fdf4; }
+
+.slot-number {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #64748b;
+  font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.slot-0 .slot-number { background: #3b82f6; color: #fff; }
+.slot-1 .slot-number { background: #8b5cf6; color: #fff; }
+.slot-2 .slot-number { background: #10b981; color: #fff; }
+
+.slot-info, .slot-empty {
+  display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
+}
+
+.slot-avatar {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+.avatar-0 { background: linear-gradient(135deg, #3b82f6, #6366f1); }
+.avatar-1 { background: linear-gradient(135deg, #8b5cf6, #a855f7); }
+.avatar-2 { background: linear-gradient(135deg, #10b981, #059669); }
+.avatar-default { background: linear-gradient(135deg, #94a3b8, #64748b); }
+
+.slot-avatar-empty {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: #e2e8f0;
+  display: flex; align-items: center; justify-content: center;
+  color: #94a3b8; font-size: 14px;
+  flex-shrink: 0;
+}
+
+.slot-text { flex: 1; min-width: 0; }
+.slot-label-sm { font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .4px; }
+.slot-name { font-size: 13px; font-weight: 600; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slot-role { font-size: 11px; color: #64748b; }
+.slot-empty-hint { font-size: 12px; color: #cbd5e1; font-style: italic; }
+
+.slot-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.slot-btn {
+  width: 24px; height: 24px;
+  background: none; border: none;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  color: #94a3b8; font-size: 11px;
+  cursor: pointer; transition: all .15s;
+}
+.slot-btn:hover:not(:disabled) { background: #f1f5f9; color: #475569; }
+.slot-btn:disabled { opacity: .3; cursor: not-allowed; }
+.slot-btn-remove:hover:not(:disabled) { background: #fef2f2; color: #ef4444; }
+
+/* ── Divider ────────────────────────────────────────────────────── */
+.section-divider { height: 1px; background: #f1f5f9; margin: 0 20px; }
+
+/* ── Users Section ─────────────────────────────────────────────── */
+.users-section { padding: 14px 20px 4px; }
+
+.users-list {
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  max-height: 220px;
   overflow-y: auto;
 }
+
+.user-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 10px 14px;
+  background: #fff; border: none;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left; cursor: pointer;
+  transition: all .15s;
+}
+.user-row:last-child { border-bottom: none; }
+.user-row:hover:not(.user-disabled):not(.user-selected) { background: #f8faff; }
+
+.user-row.user-selected { cursor: pointer; }
+.user-row.user-slot-0 { background: #eff6ff; border-left: 3px solid #3b82f6; }
+.user-row.user-slot-1 { background: #f5f3ff; border-left: 3px solid #8b5cf6; }
+.user-row.user-slot-2 { background: #f0fdf4; border-left: 3px solid #10b981; }
+.user-row.user-disabled { opacity: .4; cursor: not-allowed; }
+
+.user-avatar {
+  width: 34px; height: 34px;
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+
+.user-info { flex: 1; min-width: 0; }
+.user-name { font-size: 13px; font-weight: 600; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-meta { font-size: 11px; color: #64748b; }
+.user-warehouse { color: #94a3b8; }
+
+.user-badge-wrap { flex-shrink: 0; }
+.slot-badge {
+  display: inline-flex; align-items: center;
+  font-size: 10px; font-weight: 600;
+  padding: 2px 8px; border-radius: 99px;
+}
+.badge-slot-0 { background: #dbeafe; color: #1d4ed8; }
+.badge-slot-1 { background: #ede9fe; color: #6d28d9; }
+.badge-slot-2 { background: #d1fae5; color: #065f46; }
+
+.add-hint {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  display: flex; align-items: center; justify-content: center;
+  color: #94a3b8; font-size: 16px;
+  transition: all .15s;
+}
+.user-row:hover .add-hint { background: #dbeafe; color: #3b82f6; }
+
+/* ── Empty State ───────────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 24px 20px;
+  border: 1.5px dashed #e2e8f0;
+  border-radius: 10px;
+  background: #fafafa;
+}
+.empty-icon { font-size: 28px; color: #f59e0b; margin-bottom: 8px; }
+.empty-text { font-size: 13px; font-weight: 600; color: #475569; }
+.empty-sub { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+.empty-sub strong { color: #3b82f6; }
+
+/* ── Footer ────────────────────────────────────────────────────── */
+.signer-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px;
+  border-top: 1px solid #f1f5f9;
+  background: #fafafa;
+  border-radius: 0 0 16px 16px;
+}
+.progress-info { display: flex; align-items: center; gap: 8px; }
+.progress-dots { display: flex; gap: 4px; }
+.progress-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #e2e8f0; transition: all .2s;
+}
+.dot-color-0 { background: #3b82f6; }
+.dot-color-1 { background: #8b5cf6; }
+.dot-color-2 { background: #10b981; }
+.progress-text { font-size: 12px; color: #64748b; font-weight: 500; }
+
+.footer-actions { display: flex; gap: 8px; }
+.btn-cancel {
+  padding: 8px 16px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff; border-radius: 8px;
+  font-size: 13px; font-weight: 500; color: #64748b;
+  cursor: pointer; transition: all .15s;
+}
+.btn-cancel:hover { background: #f8faff; border-color: #cbd5e1; color: #475569; }
+
+.btn-confirm {
+  padding: 8px 18px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 600; color: #fff;
+  cursor: pointer; transition: all .15s;
+  box-shadow: 0 2px 8px rgba(239,68,68,.35);
+  display: flex; align-items: center;
+}
+.btn-confirm:hover {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  box-shadow: 0 4px 14px rgba(239,68,68,.45);
+  transform: translateY(-1px);
+}
+.btn-confirm:active { transform: translateY(0); }
+
+/* ── Transitions ───────────────────────────────────────────────── */
 .fade-modal-enter-active, .fade-modal-leave-active { transition: opacity .2s ease; }
-.fade-modal-enter-from,   .fade-modal-leave-to     { opacity: 0; }
+.fade-modal-enter-from, .fade-modal-leave-to { opacity: 0; }
+
+.slot-anim-enter-active { transition: all .25s ease; }
+.slot-anim-leave-active { transition: all .2s ease; }
+.slot-anim-enter-from { opacity: 0; transform: translateY(-6px); }
+.slot-anim-leave-to   { opacity: 0; transform: translateX(10px); }
+
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+.users-list::-webkit-scrollbar { width: 4px; }
+.users-list::-webkit-scrollbar-track { background: transparent; }
+.users-list::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 99px; }
+.signer-body::-webkit-scrollbar { width: 4px; }
+.signer-body::-webkit-scrollbar-track { background: transparent; }
+.signer-body::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 99px; }
+
 button:disabled { cursor: not-allowed; }
 </style>

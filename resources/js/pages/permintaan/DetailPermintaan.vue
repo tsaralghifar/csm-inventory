@@ -1861,8 +1861,8 @@ function buildSignGrid(resolvedSigners) {
     <div class="sb">
       <div class="sl">${escH(s.label)}</div>
       ${s.signature
-        ? `<div style="height:45px;text-align:center;background:#fff;"><img src="${s.signature}" style="max-height:42px;max-width:95px;" /></div>`
-        : `<div style="height:45px;"></div>`
+        ? `<div class="si"><img src="${s.signature}" style="max-height:100%;max-width:100%;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto;" /></div>`
+        : `<div class="si"></div>`
       }
       <div class="sn">${s.name ? escH(s.name) : ''}${s.position ? `<div style="font-size:8px;font-weight:400;color:#94a3b8;margin-top:2px;">${escH(s.position)}</div>` : ''}</div>
     </div>`
@@ -1928,9 +1928,10 @@ function buildHTML(data, resolvedSigners = []) {
   table{width:100%;border-collapse:collapse;font-size:10.5px;}
   thead th{padding:8px;color:#fff;background:#1a3a5c;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:0.8px;border:1px solid #1a3a5c;}
   td{padding:7px 8px;vertical-align:middle;}
-  .sg{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-top:28px;background:#fff;}
+  .sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:28px;background:#fff;}
   .sb{border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 12px;background:#fff;}
-  .sl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:40px;}
+  .sl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:6px;}
+  .si{height:90px;display:flex;align-items:center;justify-content:center;margin-bottom:6px;}
   .sn{border-top:1.5px solid #cbd5e1;padding-top:6px;font-size:10px;font-weight:600;color:#475569;min-height:22px;}
   .nb{margin-top:16px;padding:9px 12px;background:#f8fafc;border-left:3px solid #1a3a5c;border-radius:0 6px 6px 0;font-size:9.5px;color:#64748b;}
   @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}

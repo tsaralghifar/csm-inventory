@@ -17,7 +17,7 @@ import { useState, useRef, useEffect } from "react";
 import axios from "@/lib/axios";
 import { Upload, Trash2, CheckCircle, AlertTriangle, Loader2, ZoomIn } from "lucide-react";
 
-const MAX_SIZE_MB = 2;
+const MAX_SIZE_MB = 3;
 
 export default function SignatureUploader({ currentSignature, onSaved }) {
   const [preview, setPreview]     = useState(currentSignature ?? null);
@@ -215,12 +215,13 @@ export default function SignatureUploader({ currentSignature, onSaved }) {
 
       {/* Tips */}
       <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-        <p className="text-xs text-blue-700 font-medium mb-0.5">Tips agar hasil terbaik:</p>
+        <p className="text-xs text-blue-700 font-medium mb-0.5">Tips agar hasil terbaik di PDF:</p>
         <ul className="text-xs text-blue-600 space-y-0.5 list-disc list-inside">
-          <li>Tanda tangan di kertas putih, foto dari atas lurus</li>
-          <li>Crop rapat, sisakan sedikit ruang putih di tepi</li>
-          <li>Simpan sebagai PNG agar latar transparan (opsional)</li>
-          <li>Resolusi minimal 200×80 px untuk hasil cetakan tajam</li>
+          <li>Tanda tangan di kertas <strong>putih bersih</strong>, foto dari atas tegak lurus</li>
+          <li>Crop rapat di sekitar tanda tangan, hindari banyak area kosong</li>
+          <li>Simpan sebagai <strong>PNG</strong> (latar transparan lebih rapi di PDF)</li>
+          <li>Resolusi ideal: <strong>900×360 px</strong> ke atas agar tajam saat dicetak</li>
+          <li>Sistem otomatis memangkas tepi putih & menyesuaikan ukuran saat upload</li>
         </ul>
       </div>
     </div>

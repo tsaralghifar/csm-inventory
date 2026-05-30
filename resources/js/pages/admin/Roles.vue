@@ -102,7 +102,8 @@ function roleClass(r) {
     superuser:'bg-danger', admin_ho:'bg-primary', admin_site:'bg-info',
     manager:'bg-success', chief_mekanik:'bg-warning text-dark',
     purchasing:'bg-dark', viewer:'bg-secondary',
-    accounting:'bg-purple'
+    accounting:'bg-purple',
+    logistik_ho:'bg-teal', logistik_site:'bg-orange'
   }
   return m[r] || 'bg-secondary'
 }
@@ -152,3 +153,10 @@ function permLabel(p) {
   return m[p] || p
 }
 </script>
+<style scoped>
+/* Warna badge custom untuk role baru */
+.bg-teal   { background-color: #0d9488 !important; color: #fff !important; }
+.bg-orange { background-color: #ea580c !important; color: #fff !important; }
+/* bg-purple sudah dipakai accounting, tambahkan jika belum ada di global CSS */
+.bg-purple { background-color: #7c3aed !important; color: #fff !important; }
+</style>

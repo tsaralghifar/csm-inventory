@@ -1061,18 +1061,18 @@ function fmtDate(val) {
 function buildPOHtml(po, resolvedSigners = []) {
   const signBoxes = resolvedSigners.length
     ? resolvedSigners.map(s => `
-        <div style="flex:1;min-width:100px;text-align:center;border:1px solid #ccc;padding:8px;border-radius:4px;">
-          <div style="font-size:8pt;font-weight:600;margin-bottom:4px;">${escHtml(s.label)}</div>
+        <div style="flex:1;min-width:120px;text-align:center;border:1.5px solid #e2e8f0;padding:10px 12px;border-radius:8px;background:#fafbfc;">
+          <div style="font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#94a3b8;margin-bottom:6px;">${escHtml(s.label)}</div>
           ${s.signature
-            ? `<div style="height:50px;"><img src="${s.signature}" style="max-height:48px;max-width:90px;"/></div>`
-            : `<div style="height:50px;"></div>`}
-          <div style="border-top:1px solid #333;padding-top:4px;font-size:8pt;">${escHtml(s.name)}</div>
+            ? `<div style="height:90px;display:flex;align-items:center;justify-content:center;margin-bottom:6px;"><img src="${s.signature}" style="max-height:88px;max-width:100%;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto;"/></div>`
+            : `<div style="height:90px;margin-bottom:6px;"></div>`}
+          <div style="border-top:1.5px solid #cbd5e1;padding-top:6px;font-size:9pt;font-weight:600;color:#475569;">${escHtml(s.name)}</div>
         </div>`).join('')
     : ['Dibuat Oleh', 'Diperiksa', 'Disetujui'].map(l => `
-        <div style="flex:1;min-width:100px;text-align:center;border:1px solid #ccc;padding:8px;border-radius:4px;">
-          <div style="font-size:8pt;font-weight:600;margin-bottom:4px;">${l}</div>
-          <div style="height:50px;"></div>
-          <div style="border-top:1px solid #333;padding-top:4px;font-size:8pt;"></div>
+        <div style="flex:1;min-width:120px;text-align:center;border:1.5px solid #e2e8f0;padding:10px 12px;border-radius:8px;background:#fafbfc;">
+          <div style="font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#94a3b8;margin-bottom:6px;">${l}</div>
+          <div style="height:90px;margin-bottom:6px;"></div>
+          <div style="border-top:1.5px solid #cbd5e1;padding-top:6px;font-size:9pt;font-weight:600;color:#475569;"></div>
         </div>`).join('')
 
   const itemRows = (po.items || []).map((item, i) => `
