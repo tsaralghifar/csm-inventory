@@ -179,6 +179,7 @@ class LowStockAlertService
         $recipients = $users->filter(function (User $user) {
             return $user->isSuperuser()
                 || $user->isAdminHO()
+                || $user->isLogistikHO()
                 || $user->hasRole('purchasing')
                 || $user->hasRole('manager')
                 || $user->hasRole('warehouse');

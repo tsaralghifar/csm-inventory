@@ -435,6 +435,19 @@
     </div>
 
   </div>
+
+  <!-- Modal Pilih Penandatangan -->
+  <SignerPickerModal
+    v-model="showSignerModal"
+    :slots="slots"
+    :is-finalized="isFinalized"
+    :finalized-at="finalizedAt"
+    :loading="signerLoading"
+    :action-loading="signerActionLoading"
+    @add-slot="handleAddSlot"
+    @finalize="handleFinalize"
+    @print="handlePrint"
+  />
 </template>
 
 <script setup>
@@ -444,10 +457,18 @@ import { useAuthStore } from '@/store/auth'
 import { Modal } from 'bootstrap'
 import axios from 'axios'
 import { useRealtime } from '@/composables/useRealtime'
+import { useSignerPicker } from '@/composables/useSignerPicker'
+import SignerPickerModal from '@/components/SignerPickerModal.vue'
 
 const toast = useToast()
 const auth  = useAuthStore()
 const { listenBon, stopBon } = useRealtime()
+const {
+  showSignerModal, slots, isFinalized, finalizedAt,
+  loading: signerLoading, actionLoading: signerActionLoading,
+  openSignerPicker, addMySlot, finalizeDoc, closeModal,
+} = useSignerPicker()
+let pendingPrintBon = null
 const can = (p) => auth.hasPermission(p)
 
 const list        = ref([])
@@ -777,11 +798,35 @@ async function doReviseFromModal() {
 async function printBonDirect(bon) {
   try {
     const res = await axios.get(`/bon-pengeluaran/${bon.id}`)
-    printBon(res.data.data)
+    pendingPrintBon = res.data.data
+    openSignerPicker('bon_pengeluaran', pendingPrintBon?.id)
   } catch { toast.error('Gagal memuat data bon') }
 }
 
-function printBon(bon) {
+function doPrintBon(slots = []) {
+  // Konversi slots ke resolvedSigners (filter null)
+  const resolvedSigners = slots.filter(s => s !== null)
+  const bon = pendingPrintBon
+  if (!bon) return
+  pendingPrintBon = null
+
+  printBon(bon, resolvedSigners)
+}
+
+function buildSignBoxes(resolvedSigners, defaultLabels) {
+  const boxes = resolvedSigners.length
+    ? resolvedSigners.map(s =>
+        '<div class="sbox"><div class="stitle">'+escH(s.label)+'</div>'+
+        '<div class="sspace">'+(s.signature ? '<img src="'+s.signature+'" style="max-height:88px;max-width:100%;object-fit:contain"/>' : '')+'</div>'+
+        '<div class="sname">'+escH(s.name)+'</div></div>'
+      )
+    : defaultLabels.map(l =>
+        '<div class="sbox"><div class="stitle">'+l+'</div><div class="sspace"></div><div class="sname"></div></div>'
+      )
+  return '<div class="sgrid">'+boxes.join('')+'</div>'
+}
+
+function printBon(bon, resolvedSigners = []) {
   const fmtD = (v) => v ? new Date(v).toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'}) : '-'
   const sLabel = statusLabel(bon.status)
   const sColor = {
@@ -825,7 +870,7 @@ function printBon(bon) {
     '.sgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:24px}'+
     '.sbox{border:1.5px solid #e2e8f0;border-radius:6px;padding:8px 12px}'+
     '.stitle{font-size:8pt;font-weight:700;color:#1a3a5c;text-transform:uppercase;text-align:center;background:#e8edf4;margin:-8px -12px 8px;padding:6px;border-radius:4px 4px 0 0}'+
-    '.sspace{height:45px;border-bottom:1.5px solid #e2e8f0;margin-bottom:6px}'+
+    '.sspace{height:90px;border-bottom:1.5px solid #e2e8f0;margin-bottom:6px;display:flex;align-items:center;justify-content:center}'+
     '.sname{font-size:9pt;font-weight:600;color:#1a3a5c;text-align:center}'
 
   const o='<'
@@ -863,11 +908,7 @@ function printBon(bon) {
       '<th style="text-align:center;width:70px">Satuan</th>'+
       '<th style="text-align:left">Keterangan</th>'+
     '</tr></thead><tbody>'+rows+'</tbody></table>'+
-    '<div class="sgrid">'+
-      '<div class="sbox"><div class="stitle">Dibuat Oleh</div><div class="sspace"></div><div class="sname">'+(bon.creator?.name||'')+'</div></div>'+
-      '<div class="sbox"><div class="stitle">Dikonfirmasi Mekanik</div><div class="sspace"></div><div class="sname">'+(bon.confirmed_by||bon.mechanic||'')+'</div></div>'+
-      '<div class="sbox"><div class="stitle">Dikeluarkan Oleh</div><div class="sspace"></div><div class="sname">'+(bon.approver?.name||'')+'</div></div>'+
-    '</div>'+
+    buildSignBoxes(resolvedSigners, ['Dibuat Oleh','Dikonfirmasi Mekanik','Dikeluarkan Oleh'])+
     o+'/body>'+o+'/html>'
 
   const win = window.open('', '_blank', 'width=900,height=700')
@@ -875,4 +916,23 @@ function printBon(bon) {
   win.document.close()
   win.onload = () => { win.focus(); win.print() }
 }
+
+// ── SignerPicker handlers ──────────────────────────────────────────────────
+async function handleAddSlot(slot) {
+  const { success, message } = await addMySlot(slot)
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+async function handleFinalize() {
+  const { success, message } = await finalizeDoc()
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+function handlePrint() {
+  closeModal()
+  doPrintBon(slots.value)
+}
+
 </script>

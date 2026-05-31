@@ -62,7 +62,7 @@ class TransferBarangService
             ->where('type', 'transfer')
             ->orderBy('created_at', 'desc');
 
-        if (!$user->isSuperuser() && !$user->isAdminHO()) {
+        if (!$user->isSuperuser() && !$user->isAdminHO() && !$user->isLogistikHO()) {
             $query->where(fn($q) => $q
                 ->where('from_warehouse_id', $user->warehouse_id)
                 ->orWhere('to_warehouse_id', $user->warehouse_id));

@@ -33,6 +33,8 @@ const routes = [
 
       // Transfer Barang antar Gudang
       { path: 'transfer-barang', component: () => import('@/pages/transfer/TransferBarang.vue'), meta: { title: 'Transfer Barang', icon: 'bi-arrow-left-right', permission: 'view-mr' } },
+      { path: 'transfer-part', component: () => import('@/pages/operasional/TransferPart.vue'), meta: { title: 'Transfer Part Darurat', icon: 'bi-lightning', permission: 'view-transfer-part' } },
+      { path: 'transfer-part/:id', component: () => import('@/pages/operasional/TransferPart.vue'), meta: { title: 'Detail Transfer Part', permission: 'view-transfer-part' } },
       { path: 'transfer-barang/:id', component: () => import('@/pages/transfer/DetailTransfer.vue'), meta: { title: 'Detail Transfer', permission: 'view-mr' } },
 
       // Mutasi / Pergerakan

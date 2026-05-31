@@ -18,7 +18,9 @@ class WarehouseController extends Controller
             ->orderBy('type')->orderBy('name');
 
         // Superuser, admin_ho, atau user dengan permission manage-warehouses bisa lihat semua gudang
-        if (!$user->isSuperuser() && !$user->isAdminHO() && !$user->hasPermissionTo('manage-warehouses')) {
+        // Exception: request type=ho diizinkan untuk semua user (dibutuhkan halaman Stok Gudang HO)
+        $requestingHoList = $request->type === 'ho';
+        if (!$user->isSuperuser() && !$user->isAdminHO() && !$user->isLogistikHO() && !$user->hasPermissionTo('manage-warehouses') && !$requestingHoList) {
             $query->where('id', $user->warehouse_id);
         }
 
@@ -89,7 +91,9 @@ class WarehouseController extends Controller
     public function stocks(Request $request, Warehouse $warehouse)
     {
         $user = $request->user();
-        if (!$user->canAccessWarehouse($warehouse->id)) {
+        // Semua user boleh lihat stok gudang HO (read-only untuk non-HO)
+        $isHoWarehouse = $warehouse->type === 'ho';
+        if (!$isHoWarehouse && !$user->canAccessWarehouse($warehouse->id)) {
             return response()->json(['success' => false, 'message' => 'Akses ditolak'], 403);
         }
 

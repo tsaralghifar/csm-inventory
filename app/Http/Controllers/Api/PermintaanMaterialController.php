@@ -37,6 +37,7 @@ class PermintaanMaterialController extends Controller
             'type'                      => 'nullable|in:part,office',
             'notes'                     => 'nullable|string',
             'needed_date'               => 'nullable|date',
+            'linked_transfer_part_id'   => 'nullable|exists:material_requests,id',
             'items'                     => 'required|array|min:1',
             'items.*.item_id'           => 'nullable|exists:items,id',
             'items.*.part_number'       => 'nullable|string|max:100',
@@ -68,7 +69,34 @@ class PermintaanMaterialController extends Controller
             }
         }
 
+        // Jika PM ini pengganti Transfer Part, validasi TP valid & belum punya PM
+        if (!empty($validated['linked_transfer_part_id'])) {
+            $tp = \App\Models\MaterialRequest::where('id', $validated['linked_transfer_part_id'])
+                ->where('type', 'transfer_part')
+                ->where('status', 'approved')
+                ->first();
+            if (!$tp) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Transfer Part tidak ditemukan atau belum disetujui.',
+                ], 422);
+            }
+            if ($tp->linked_pm_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Transfer Part ini sudah memiliki PM pengganti.',
+                ], 422);
+            }
+        }
+
         $result = $this->service->store($validated, $request->user()->id);
+
+        // Link balik ke Transfer Part jika ada
+        if (!empty($validated['linked_transfer_part_id'])) {
+            $result['pm']->update(['linked_transfer_part_id' => $validated['linked_transfer_part_id']]);
+            \App\Models\MaterialRequest::where('id', $validated['linked_transfer_part_id'])
+                ->update(['linked_pm_id' => $result['pm']->id]);
+        }
 
         broadcast(new PermintaanMaterialUpdated($result['pm']->fresh(), 'created'))->toOthers();
 
@@ -99,7 +127,8 @@ class PermintaanMaterialController extends Controller
                 'poSubmitter',
                 'purchaseOrders.items',
                 'purchaseOrders.creator',
-                'bonPengeluaran.warehouse'
+                'bonPengeluaran.warehouse',
+                'linkedTransferPart'
             ),
         ]);
     }
@@ -184,7 +213,7 @@ class PermintaanMaterialController extends Controller
     // POST /permintaan-material/{id}/submit-purchasing
     public function submitPurchasing(Request $request, PermintaanMaterial $pm)
     {
-        if (!$request->user()->isAdminHO() && !$request->user()->isSuperuser()) {
+        if (!$request->user()->isAdminHO() && !$request->user()->isLogistikHO() && !$request->user()->isSuperuser()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Hanya Admin HO yang dapat mengajukan PO',

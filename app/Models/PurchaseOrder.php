@@ -37,6 +37,7 @@ class PurchaseOrder extends Model
         'diskon_persen', 'diskon_amount',
         'expected_date', 'notes',
         'payment_type', 'payment_term_days', 'payment_due_date',
+        'linked_mr_transfer_id',
     ];
 
     protected $casts = [
@@ -55,6 +56,12 @@ class PurchaseOrder extends Model
     public function materialRequest(): BelongsTo
     {
         return $this->belongsTo(MaterialRequest::class);
+    }
+
+    /** MR Transfer Part yang menjadi alasan pembelian ini */
+    public function linkedTransferPart(): BelongsTo
+    {
+        return $this->belongsTo(MaterialRequest::class, 'linked_mr_transfer_id');
     }
 
     /** @deprecated Gunakan permintaanMaterials() (many-to-many) */

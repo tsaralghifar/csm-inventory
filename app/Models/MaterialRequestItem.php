@@ -8,6 +8,7 @@ class MaterialRequestItem extends Model
 {
     protected $fillable = [
         'material_request_id', 'item_id', 'qty_request', 'qty_approved', 'qty_sent', 'qty_received', 'notes',
+        'kode_unit', 'tipe_unit',
     ];
 
     protected $casts = [

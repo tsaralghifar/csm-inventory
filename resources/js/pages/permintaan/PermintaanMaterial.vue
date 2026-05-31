@@ -142,10 +142,16 @@
 
     <!-- Modal Pilih Penandatangan -->
     <SignerPickerModal
-      v-model="showSignerModal"
-      :signers="signers"
-      @confirm="doPrintPM"
-    />
+    v-model="showSignerModal"
+    :slots="slots"
+    :is-finalized="isFinalized"
+    :finalized-at="finalizedAt"
+    :loading="signerLoading"
+    :action-loading="signerActionLoading"
+    @add-slot="handleAddSlot"
+    @finalize="handleFinalize"
+    @print="handlePrint"
+  />
 
     <!-- Drawer Buat Permintaan (menggantikan modal lama) -->
     <BuatPermintaanDrawer
@@ -212,7 +218,11 @@ const showDrawer = ref(false)
 const showRejectModal = ref(false)
 
 // ── Tanda Tangan ──────────────────────────────────────────────────────
-const { showSignerModal, signers, openSignerPicker } = useSignerPicker()
+const {
+  showSignerModal, slots, isFinalized, finalizedAt,
+  loading: signerLoading, actionLoading: signerActionLoading,
+  openSignerPicker, addMySlot, finalizeDoc, closeModal,
+} = useSignerPicker()
 let pendingPrintData = null   // simpan data PM yang akan diprint
 let timer = null
 
@@ -485,6 +495,7 @@ function buildPMHtml(pm, resolvedSigners = []) {
       <div class="info-title">Informasi Permintaan</div>
       <div class="info-row"><span class="info-label">No. MR</span><span class="info-value hi">${pm.nomor}</span></div>
       <div class="info-row"><span class="info-label">Gudang / Site</span><span class="info-value hi">${pm.warehouse?.name || '-'}</span></div>
+      ${pm.linked_transfer_part ? '<div class="info-row"><span class="info-label" style="color:#b45309;">&#9889; Pengganti Transfer</span><span class="info-value" style="color:#b45309;font-weight:600;">' + pm.linked_transfer_part.mr_number + '</span></div>' : ''}
       <div class="info-row"><span class="info-label">Diajukan Oleh</span><span class="info-value">${pm.requester?.name || '-'}</span></div>
       <div class="info-row"><span class="info-label">Tanggal Dibuat</span><span class="info-value">${fmtDatePM(pm.created_at)}</span></div>
     </div>
@@ -526,51 +537,50 @@ function buildPMHtml(pm, resolvedSigners = []) {
 async function printPMDirect(pm) {
   try {
     const res = await axios.get(`/permintaan-material/${pm.id}`)
-    pendingPrintData = res.data.data
-    await openSignerPicker()
+    const pmData = res.data.data
+    if (pmData.linked_transfer_part_id && !pmData.linked_transfer_part) {
+      try {
+        const tpRes = await axios.get(`/transfer-part/${pmData.linked_transfer_part_id}`)
+        pmData.linked_transfer_part = tpRes.data.data
+      } catch {}
+    }
+    pendingPrintData = pmData
+    openSignerPicker('permintaan_material', pmData.id)
   } catch { toast.error('Gagal memuat data PM') }
 }
 
-// Langkah 2: user konfirmasi signer → fetch TTD → print
-async function doPrintPM(signerIds = []) {
+// Dipanggil composable setelah TTD dikonfirmasi (atau di-load dari snapshot permanen)
+function doPrintPM(slots = []) {
+  // Konversi slots ke resolvedSigners (filter null)
+  const resolvedSigners = slots.filter(s => s !== null)
   if (!pendingPrintData) return
   const pm = pendingPrintData
   pendingPrintData = null
-
-  // Ambil data TTD untuk signer yang dipilih
-  let resolvedSigners = []
-  if (signerIds.length) {
-    try {
-      const allSigners = signers.value
-      const LABELS = ['Dibuat oleh', 'Diperiksa oleh', 'Disetujui oleh']
-      resolvedSigners = signerIds.slice(0, 3).map((id, i) => {
-        const u = allSigners.find(s => s.id === id)
-        return u ? {
-          label:     LABELS[i] ?? `Penandatangan ${i+1}`,
-          name:      u.name,
-          position:  u.position || u.role || '',
-          // Fetch signature langsung — sudah ada di signers dari /users/signable
-          // tapi signable tidak return signature, perlu ambil dari profile endpoint
-          signature: null,  // akan di-fetch di bawah
-          id:        u.id,
-        } : null
-      }).filter(Boolean)
-
-      // Fetch signature base64 untuk setiap signer
-      const sigPromises = resolvedSigners.map(s =>
-        axios.get(`/profile-signature/${s.id}`).then(r => {
-          s.signature = r.data.data?.signature_preview ?? null
-        }).catch(() => {})
-      )
-      await Promise.allSettled(sigPromises)
-    } catch {}
-  }
 
   const html = buildPMHtml(pm, resolvedSigners)
   const win  = window.open('', '_blank', 'width=900,height=700')
   win.document.write(html)
   win.document.close()
   win.onload = () => { win.focus(); win.print() }
+}
+
+
+// ── SignerPicker handlers ──────────────────────────────────────────────────
+async function handleAddSlot(slot) {
+  const { success, message } = await addMySlot(slot)
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+async function handleFinalize() {
+  const { success, message } = await finalizeDoc()
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+function handlePrint() {
+  closeModal()
+  doPrintPM(slots.value)
 }
 
 </script>

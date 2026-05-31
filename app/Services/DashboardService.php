@@ -263,6 +263,7 @@ class DashboardService
         if (
             $user->isSuperuser() ||
             $user->isAdminHO() ||
+            $user->isLogistikHO() ||
             $user->hasRole('purchasing') ||
             $user->hasRole('manager')
         ) {

@@ -17,7 +17,7 @@ class FuelLogController extends Controller
             ->orderBy('log_date', 'desc')
             ->orderBy('id', 'desc');
 
-        if (!$user->isSuperuser() && !$user->isAdminHO()) {
+        if (!$user->isSuperuser() && !$user->isAdminHO() && !$user->isLogistikHO()) {
             $query->where('warehouse_id', $user->warehouse_id);
         }
 
@@ -33,7 +33,7 @@ class FuelLogController extends Controller
 
         // Summary always calculated for selected warehouse+month
         $summaryQuery = FuelLog::query();
-        if (!$user->isSuperuser() && !$user->isAdminHO()) {
+        if (!$user->isSuperuser() && !$user->isAdminHO() && !$user->isLogistikHO()) {
             $summaryQuery->where('warehouse_id', $user->warehouse_id);
         }
         if ($request->warehouse_id) $summaryQuery->where('warehouse_id', $request->warehouse_id);
@@ -61,7 +61,7 @@ class FuelLogController extends Controller
         $unitConsumption = null;
         if ($request->with_units) {
             $unitQ = FuelLog::query();
-            if (!$user->isSuperuser() && !$user->isAdminHO()) {
+            if (!$user->isSuperuser() && !$user->isAdminHO() && !$user->isLogistikHO()) {
                 $unitQ->where('warehouse_id', $user->warehouse_id);
             }
             if ($request->warehouse_id) $unitQ->where('warehouse_id', $request->warehouse_id);

@@ -118,6 +118,7 @@ function groupLabel(g) {
     bon:'Bon Pengeluaran', po:'Purchase Order', pm:'Permintaan Material',
     accounting:'Accounting', payroll:'Payroll',
     audit:'Audit & Keamanan',
+    'transfer-part': 'Transfer Part Darurat',
     other:'Lainnya'
   }
   return m[g] || g
@@ -136,6 +137,9 @@ function permLabel(p) {
     'view-transfer':'Lihat Transfer Barang', 'create-transfer':'Buat Transfer Barang',
     'approve-transfer-admin':'Approve Transfer (Admin HO)', 'approve-transfer-atasan':'Approve Transfer (Atasan)',
     'dispatch-transfer':'Kirim Transfer (Buat DO)', 'receive-transfer':'Konfirmasi Terima Transfer',
+    'view-transfer-part':'Lihat Transfer Part Darurat', 'create-transfer-part':'Buat Transfer Part Darurat',
+    'approve-transfer-part-chief':'Otorisasi Transfer Part (Chief Mekanik)',
+    'approve-transfer-part-manager':'Approve Transfer Part (Manager)',
     'view-retur':'Lihat Retur Barang', 'create-retur':'Buat Retur Barang', 'confirm-retur':'Konfirmasi Retur',
     'view-pm':'Lihat Permintaan Material', 'create-pm':'Buat Permintaan Material',
     'approve-pm-site':'Approve PM (Site)', 'approve-pm-ho':'Approve PM (HO)',

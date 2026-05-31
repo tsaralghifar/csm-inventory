@@ -321,8 +321,14 @@
   <!-- Modal Pilih Penandatangan -->
   <SignerPickerModal
     v-model="showSignerModal"
-    :signers="signers"
-    @confirm="exportPdf"
+    :slots="slots"
+    :is-finalized="isFinalized"
+    :finalized-at="finalizedAt"
+    :loading="signerLoading"
+    :action-loading="signerActionLoading"
+    @add-slot="handleAddSlot"
+    @finalize="handleFinalize"
+    @print="handlePrint"
   />
 </template>
 <script setup>
@@ -337,7 +343,11 @@ const toast = useToast()
 const auth  = useAuthStore()
 
 // ── Signer Picker ────────────────────────────────────────────────────
-const { showSignerModal, signers, openSignerPicker } = useSignerPicker()
+const {
+  showSignerModal, slots, isFinalized, finalizedAt,
+  loading: signerLoading, actionLoading: signerActionLoading,
+  openSignerPicker, addMySlot, finalizeDoc, closeModal,
+} = useSignerPicker()
 
 // ── State ────────────────────────────────────────────────────────────
 const warehouses     = ref([])
@@ -506,18 +516,17 @@ async function exportExcel() {
 // ── Export PDF ───────────────────────────────────────────────────────
 async function onClickExportPdf() {
   if (!stocks.value.length) { toast.warning('Tidak ada data untuk diekspor'); return }
-  await openSignerPicker()
+  openSignerPicker('report_stock', Date.now(), exportPdf)
 }
 
-async function exportPdf(signerIds) {
-  showSignerModal.value = false
+async function exportPdf(resolvedSlots = []) {
   exportingPdf.value = true
   try {
     const response = await axios.get('/reports/export-pdf', {
       params: {
         warehouse_id: params.value.warehouse_id || undefined,
         filter:       params.value.filter       || undefined,
-        signer_ids:   signerIds?.length ? signerIds : undefined,
+        signer_ids:   undefined,
       },
       responseType: 'blob',
     })
@@ -536,6 +545,25 @@ async function exportPdf(signerIds) {
     exportingPdf.value = false
   }
 }
+
+// ── SignerPicker handlers ──────────────────────────────────────────────────
+async function handleAddSlot(slot) {
+  const { success, message } = await addMySlot(slot)
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+async function handleFinalize() {
+  const { success, message } = await finalizeDoc()
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+function handlePrint() {
+  closeModal()
+  exportPdf(slots.value)
+}
+
 </script>
 
 <style scoped>

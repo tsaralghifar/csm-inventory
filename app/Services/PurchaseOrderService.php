@@ -70,6 +70,7 @@ class PurchaseOrderService
             $this->syncPermintaanMaterials($po, $pmIds);
             $this->updatePmStatuses($pmIds);
             $this->updateMrStatus($validated);
+            $this->autoLinkTransferPart($po, $pmIds);
 
             return $po->load('items', 'warehouse', 'creator', 'materialRequest', 'permintaanMaterials', 'supplier');
         });
@@ -454,6 +455,24 @@ class PurchaseOrderService
             MaterialRequest::find($validated['material_request_id'])
                 ?->update(['status' => 'purchasing']);
         }
+    }
+
+    // Auto-link Transfer Part Darurat ke PO yang baru dibuat
+    // Jika ada PM pengganti TP dalam batch ini, isi linked_po_id di TP-nya
+    private function autoLinkTransferPart(PurchaseOrder $po, Collection $pmIds): void
+    {
+        if ($pmIds->isEmpty()) return;
+
+        PermintaanMaterial::with('linkedTransferPart')
+            ->whereIn('id', $pmIds)
+            ->whereNotNull('linked_transfer_part_id')
+            ->get()
+            ->each(function ($pm) use ($po) {
+                $tp = $pm->linkedTransferPart;
+                if ($tp && !$tp->linked_po_id) {
+                    $tp->update(['linked_po_id' => $po->id]);
+                }
+            });
     }
 
     // ─── Private: generators ──────────────────────────────────────────────────

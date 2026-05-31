@@ -75,6 +75,9 @@
         <router-link v-if="can('view-transfer')" to="/transfer-barang" class="csm-nav-link" :class="{ active: $route.path.startsWith('/transfer-barang') }">
           <i class="bi bi-arrow-left-right"></i> Transfer Barang
         </router-link>
+        <router-link v-if="can('view-transfer-part')" to="/transfer-part" class="csm-nav-link" :class="{ active: $route.path.startsWith('/transfer-part') }">
+          <i class="bi bi-lightning-charge"></i> Transfer Part Darurat
+        </router-link>
         <router-link v-if="can('view-fuel')" to="/bbm" class="csm-nav-link" :class="{ active: $route.path.startsWith('/bbm') }">
           <i class="bi bi-fuel-pump"></i> Pengeluaran Solar
         </router-link>

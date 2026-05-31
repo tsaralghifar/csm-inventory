@@ -119,6 +119,12 @@
                 <label class="pm-label">Catatan Umum</label>
                 <input v-model="form.notes" type="text" class="form-control form-control-sm" placeholder="Catatan tambahan (opsional)..." />
               </div>
+              <div v-if="form.type === 'part'" class="col-12">
+                <TransferPartPicker
+                  v-model="form.linked_transfer_part_id"
+                  @autofill="autofillFromTransfer"
+                />
+              </div>
             </div>
           </div>
 
@@ -446,6 +452,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { useToast } from 'vue-toastification'
 import { useAuthStore } from '@/store/auth'
 import axios from 'axios'
+import TransferPartPicker from '@/components/TransferPartPicker.vue'
 
 // ── Props & emits ─────────────────────────────────────────
 const props = defineProps({
@@ -486,7 +493,7 @@ function defaultItem() {
 }
 
 function defaultForm() {
-  return { type: 'part', warehouse_id: '', needed_date: '', notes: '', items: [defaultItem()] }
+  return { type: 'part', warehouse_id: '', needed_date: '', notes: '', linked_transfer_part_id: null, items: [defaultItem()] }
 }
 
 const form = ref(defaultForm())
@@ -789,6 +796,37 @@ function onBackdropClick() {
 
 // expose untuk parent yg masih butuh ref
 defineExpose({ addItem, close })
+
+// Autofill daftar part dari Transfer Part yang dipilih
+function autofillFromTransfer(tpItems) {
+  if (!tpItems?.length) return
+  const mapped = tpItems.map(i => ({
+    item_id:       i.item_id ?? null,
+    part_number:   i.part_number ?? '',
+    nama_barang:   i.nama_barang ?? '',
+    kode_unit:     i.kode_unit ?? '',
+    tipe_unit:     i.tipe_unit ?? '',
+    kode_unit_list: i.kode_unit
+      ? [{ kode: i.kode_unit, tipe: i.tipe_unit ?? '' }]
+      : [],
+    qty:           i.qty ?? 1,
+    satuan:        i.satuan ?? 'Pcs',
+    keterangan:    'Pengganti Transfer Part Darurat',
+    is_new_item:   false,
+    new_part_number: '',
+    new_category_id: '',
+    new_brand:     '',
+    new_min_stock: 0,
+  }))
+  // Ganti items yang masih kosong, atau tambahkan
+  const isEmpty = form.value.items.length === 1 && !form.value.items[0].nama_barang
+  if (isEmpty) {
+    form.value.items = mapped
+  } else {
+    form.value.items = [...form.value.items, ...mapped]
+  }
+}
+
 </script>
 
 <style scoped>

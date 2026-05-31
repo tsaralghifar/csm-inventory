@@ -1,171 +1,169 @@
 <!--
-  SignerPickerModal.vue
-  Modal pilih penandatangan sebelum export PDF.
-  Versi Vue (menggantikan SignerPickerModal.jsx).
+  SignerPickerModal.vue — Versi 3 (TTD Bertahap + Finalisasi)
 
   Props:
-    modelValue  — boolean (v-model) buka/tutup modal
-    signers     — array user dari GET /api/users/signable
-    maxSigners  — jumlah max slot (default: 3)
+    modelValue  — boolean v-model buka/tutup
+    slots       — array 3 elemen dari useSignerPicker (null = slot kosong)
+    isFinalized — boolean: apakah dokumen sudah dikunci
+    loading     — boolean: sedang load data dari server
+    actionLoading — boolean: sedang proses addSlot / finalize
 
   Events:
     update:modelValue — tutup modal
-    confirm(ids)      — array user_id yang dipilih, dalam urutan slot
-
-  Contoh pemakaian:
-    <SignerPickerModal
-      v-model="showModal"
-      :signers="signers"
-      @confirm="onConfirm"
-    />
-
-    function onConfirm(signerIds) {
-      // signerIds: [3, 7, 12] — urutan = Dibuat oleh, Diperiksa, Disetujui
-      downloadPdf(signerIds)
-    }
+    add-slot(n)       — user minta tambah TTD di slot n (1-3)
+    finalize          — user klik Finalisasi
+    print             — user klik Print PDF
 -->
 <template>
   <Teleport to="body">
     <Transition name="fade-modal">
-      <div v-if="modelValue" class="signer-overlay" @click.self="$emit('update:modelValue', false)">
+      <div v-if="modelValue" class="signer-overlay" @click.self="close">
         <div class="signer-box">
 
-          <!-- Header -->
+          <!-- ── Header ── -->
           <div class="signer-header">
             <div class="header-icon-wrap">
               <i class="bi bi-pen-fill"></i>
             </div>
             <div>
-              <h6 class="header-title">Pilih Penandatangan PDF</h6>
-              <p class="header-sub">Pilih hingga <strong>{{ maxSigners }}</strong> penandatangan. Urutan menentukan posisi di PDF.</p>
+              <h6 class="header-title">Tanda Tangan Dokumen</h6>
+              <p class="header-sub" v-if="!isFinalized">
+                Tambahkan TTD Anda ke salah satu slot, lalu Finalisasi untuk mengunci.
+              </p>
+              <p class="header-sub finalized-sub" v-else>
+                <i class="bi bi-lock-fill me-1"></i>
+                Dokumen telah difinalisasi — tanda tangan tidak dapat diubah.
+              </p>
             </div>
-            <button class="close-btn" @click="$emit('update:modelValue', false)">
+            <button class="close-btn" @click="close">
               <i class="bi bi-x-lg"></i>
             </button>
           </div>
 
+          <!-- ── Body ── -->
           <div class="signer-body">
 
-            <!-- Slot Preview -->
-            <div class="slot-section">
-              <div class="section-label">
-                <i class="bi bi-layout-three-columns me-1"></i>
-                Urutan Tanda Tangan
-              </div>
+            <!-- Loading skeleton -->
+            <div v-if="loading" class="loading-state">
+              <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+              Memuat status tanda tangan...
+            </div>
 
-              <div class="slots-container">
-                <TransitionGroup name="slot-anim" tag="div" class="slots-list">
+            <template v-else>
+
+              <!-- Slot cards -->
+              <div class="slots-section">
+                <div class="section-label">
+                  <i class="bi bi-layout-three-columns me-1"></i>
+                  Status Tanda Tangan
+                </div>
+
+                <div class="slots-list">
                   <div
-                    v-for="(u, idx) in filledSlots"
-                    :key="'slot-' + idx"
+                    v-for="(slot, idx) in slots"
+                    :key="idx"
                     class="slot-card"
-                    :class="'slot-' + idx"
+                    :class="{
+                      'slot-filled': slot !== null,
+                      'slot-empty': slot === null,
+                      ['slot-color-' + idx]: true,
+                    }"
                   >
-                    <div class="slot-number">{{ idx + 1 }}</div>
-                    <div class="slot-info" v-if="u">
+                    <!-- Nomor slot -->
+                    <div class="slot-num" :class="'num-' + idx">{{ idx + 1 }}</div>
+
+                    <!-- Isi slot -->
+                    <div class="slot-content" v-if="slot">
                       <div class="slot-avatar" :class="'avatar-' + idx">
-                        {{ u.name?.charAt(0)?.toUpperCase() }}
+                        {{ slot.name?.charAt(0)?.toUpperCase() }}
                       </div>
                       <div class="slot-text">
                         <div class="slot-label-sm">{{ SLOT_LABELS[idx] }}</div>
-                        <div class="slot-name">{{ u.name }}</div>
-                        <div class="slot-role">{{ u.position || u.role }}</div>
+                        <div class="slot-name">{{ slot.name }}</div>
+                        <div class="slot-role">{{ slot.position }}</div>
                       </div>
-                      <div class="slot-actions">
-                        <button class="slot-btn" @click="moveUp(idx)" :disabled="idx === 0" title="Naik">
-                          <i class="bi bi-chevron-up"></i>
-                        </button>
-                        <button class="slot-btn" @click="moveDown(idx)" :disabled="idx >= selected.length - 1" title="Turun">
-                          <i class="bi bi-chevron-down"></i>
-                        </button>
-                        <button class="slot-btn slot-btn-remove" @click="remove(u.id)" title="Hapus">
-                          <i class="bi bi-x"></i>
-                        </button>
+                      <div class="slot-badge-wrap">
+                        <span class="slot-badge-done">
+                          <i class="bi bi-check-circle-fill me-1"></i>Ditandatangani
+                        </span>
+                        <span class="slot-date">{{ formatDate(slot.signed_at) }}</span>
                       </div>
                     </div>
-                    <div class="slot-empty" v-else>
-                      <div class="slot-avatar-empty">
+
+                    <!-- Slot kosong -->
+                    <div class="slot-content slot-empty-content" v-else>
+                      <div class="slot-avatar avatar-empty">
                         <i class="bi bi-person-dash"></i>
                       </div>
                       <div class="slot-text">
                         <div class="slot-label-sm">{{ SLOT_LABELS[idx] }}</div>
-                        <div class="slot-empty-hint">Belum dipilih</div>
+                        <div class="slot-name-empty">Belum ditandatangani</div>
                       </div>
+                      <!-- Tombol tambah TTD (hanya jika belum finalized) -->
+                      <button
+                        v-if="!isFinalized"
+                        class="btn-add-slot"
+                        :disabled="actionLoading"
+                        @click="$emit('add-slot', idx + 1)"
+                        :title="`Tambahkan TTD Anda ke slot ${idx + 1}`"
+                      >
+                        <span v-if="actionLoading" class="spinner-border spinner-border-sm"></span>
+                        <i v-else class="bi bi-plus-circle me-1"></i>
+                        Tambah TTD Saya
+                      </button>
                     </div>
                   </div>
-                </TransitionGroup>
-              </div>
-            </div>
-
-            <!-- Divider -->
-            <div class="section-divider"></div>
-
-            <!-- User List -->
-            <div class="users-section">
-              <div class="section-label">
-                <i class="bi bi-people-fill me-1"></i>
-                User dengan Tanda Tangan Tersedia
+                </div>
               </div>
 
-              <div v-if="!signers.length" class="empty-state">
-                <div class="empty-icon"><i class="bi bi-exclamation-circle"></i></div>
-                <div class="empty-text">Belum ada user yang mengupload tanda tangan.</div>
-                <div class="empty-sub">Minta setiap user upload TTD di halaman <strong>Profil</strong>.</div>
+              <!-- Banner finalized -->
+              <div v-if="isFinalized" class="finalized-banner">
+                <i class="bi bi-shield-lock-fill me-2"></i>
+                <div>
+                  <strong>Dokumen dikunci secara permanen.</strong>
+                  <span v-if="finalizedAt"> Difinalisasi pada {{ formatDate(finalizedAt) }}.</span>
+                </div>
               </div>
 
-              <div v-else class="users-list">
-                <button
-                  v-for="u in signers"
-                  :key="u.id"
-                  type="button"
-                  class="user-row"
-                  :class="{
-                    'user-selected': isSelected(u.id),
-                    ['user-slot-' + selected.findIndex(s => s.id === u.id)]: isSelected(u.id),
-                    'user-disabled': isDisabled(u.id),
-                  }"
-                  :disabled="isDisabled(u.id)"
-                  @click="toggle(u)"
-                >
-                  <div class="user-avatar"
-                    :class="isSelected(u.id) ? 'avatar-' + selected.findIndex(s => s.id === u.id) : 'avatar-default'"
-                  >
-                    {{ u.name?.charAt(0)?.toUpperCase() }}
-                  </div>
-                  <div class="user-info">
-                    <div class="user-name">{{ u.name }}</div>
-                    <div class="user-meta">{{ u.position || u.role }}<span v-if="u.warehouse" class="user-warehouse"> · {{ u.warehouse }}</span></div>
-                  </div>
-                  <div class="user-badge-wrap">
-                    <span v-if="isSelected(u.id)" class="slot-badge" :class="'badge-slot-' + selected.findIndex(s => s.id === u.id)">
-                      <i class="bi bi-check2 me-1"></i>Slot {{ selected.findIndex(s => s.id === u.id) + 1 }}
-                    </span>
-                    <span v-else-if="!isDisabled(u.id)" class="add-hint">
-                      <i class="bi bi-plus"></i>
-                    </span>
-                  </div>
-                </button>
+              <!-- Info belum ada TTD sama sekali -->
+              <div v-if="!isFinalized && filledCount === 0" class="no-ttd-info">
+                <i class="bi bi-info-circle me-2"></i>
+                Belum ada tanda tangan. Klik <strong>"Tambah TTD Saya"</strong> di slot yang diinginkan, atau klik <strong>"Preview PDF"</strong> untuk melihat dokumen tanpa tanda tangan.
               </div>
-            </div>
+
+            </template>
           </div>
 
-          <!-- Footer -->
+          <!-- ── Footer ── -->
           <div class="signer-footer">
-            <div class="progress-info">
-              <div class="progress-dots">
-                <span
-                  v-for="n in maxSigners"
-                  :key="n"
-                  class="progress-dot"
-                  :class="{ 'dot-filled': n <= selected.length, ['dot-color-' + (n - 1)]: n <= selected.length }"
-                ></span>
-              </div>
-              <span class="progress-text">{{ selected.length }}/{{ maxSigners }} dipilih</span>
+            <div class="footer-left">
+              <span class="slot-count">{{ filledCount }}/3 ditandatangani</span>
             </div>
-            <div class="footer-actions">
-              <button class="btn-cancel" @click="$emit('update:modelValue', false)">Batal</button>
-              <button class="btn-confirm" @click="confirm">
-                <i class="bi bi-file-earmark-pdf-fill me-1"></i>Export PDF
+            <div class="footer-right">
+              <button class="btn-cancel" @click="close" :disabled="actionLoading">
+                Tutup
+              </button>
+
+              <!-- Finalisasi — hanya jika ada TTD dan belum final dan berwenang -->
+              <button
+                v-if="!isFinalized && filledCount > 0 && canFinalize"
+                class="btn-finalize"
+                :disabled="actionLoading"
+                @click="$emit('finalize')"
+              >
+                <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
+                <i v-else class="bi bi-lock-fill me-1"></i>
+                Finalisasi
+              </button>
+
+              <!-- Print PDF -->
+              <button
+                class="btn-print"
+                :disabled="loading || actionLoading"
+                @click="$emit('print')"
+              >
+                <i class="bi bi-file-earmark-pdf-fill me-1"></i>
+                {{ filledCount === 0 ? 'Preview PDF' : 'Export PDF' }}
               </button>
             </div>
           </div>
@@ -177,335 +175,197 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { computed } from 'vue'
+import { useAuthStore } from '@/store/auth'
 
 const props = defineProps({
-  modelValue: { type: Boolean, default: false },
-  signers:    { type: Array,   default: () => [] },
-  maxSigners: { type: Number,  default: 3 },
+  modelValue:    { type: Boolean, default: false },
+  slots:         { type: Array,   default: () => [null, null, null] },
+  isFinalized:   { type: Boolean, default: false },
+  finalizedAt:   { type: String,  default: null },
+  loading:       { type: Boolean, default: false },
+  actionLoading: { type: Boolean, default: false },
 })
 
-const emit     = defineEmits(['update:modelValue', 'confirm'])
-const selected = ref([])
+const emit = defineEmits(['update:modelValue', 'add-slot', 'finalize', 'print'])
 
 const SLOT_LABELS = ['Dibuat oleh', 'Diperiksa oleh', 'Disetujui oleh']
 
-// Filled slots — always show maxSigners rows (filled + empty placeholders)
-const filledSlots = computed(() => {
-  const arr = [...selected.value]
-  while (arr.length < props.maxSigners) arr.push(null)
-  return arr
-})
+const auth = useAuthStore()
 
-// Reset pilihan setiap kali modal dibuka
-watch(() => props.modelValue, (val) => { if (val) selected.value = [] })
+const filledCount = computed(() => props.slots.filter(s => s !== null).length)
 
-const isSelected = (id) => selected.value.some(u => u.id === id)
-const isDisabled = (id) => !isSelected(id) && selected.value.length >= props.maxSigners
+const canFinalize = computed(() =>
+  auth.isSuperuser ||
+  auth.hasRole('admin_ho') ||
+  auth.hasRole('manager') ||
+  auth.hasRole('logistik_ho')
+)
 
-function toggle(u) {
-  if (isSelected(u.id)) {
-    selected.value = selected.value.filter(s => s.id !== u.id)
-  } else if (selected.value.length < props.maxSigners) {
-    selected.value = [...selected.value, u]
-  }
+function close() {
+  emit('update:modelValue', false)
 }
 
-function remove(id)    { selected.value = selected.value.filter(u => u.id !== id) }
-function moveUp(idx)   { if (idx === 0) return; const a = [...selected.value]; [a[idx-1],a[idx]]=[a[idx],a[idx-1]]; selected.value=a }
-function moveDown(idx) { const a=[...selected.value]; if(idx>=a.length-1)return; [a[idx],a[idx+1]]=[a[idx+1],a[idx]]; selected.value=a }
-
-function confirm() {
-  emit('confirm', selected.value.map(u => u.id))
-  emit('update:modelValue', false)
+function formatDate(iso) {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleDateString('id-ID', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    })
+  } catch { return iso }
 }
 </script>
 
 <style scoped>
-/* ── Overlay & Box ─────────────────────────────────────────────── */
+/* ── Overlay & Box ─────────────────────────────────────────────────────────── */
 .signer-overlay {
-  position: fixed; inset: 0;
-  background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(4px);
-  z-index: 1060;
+  position: fixed; inset: 0; z-index: 1060;
+  background: rgba(15,23,42,.45);
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
 }
 .signer-box {
-  background: #fff;
-  border-radius: 16px;
-  width: 100%; max-width: 540px;
-  box-shadow: 0 24px 80px rgba(15,23,42,.22), 0 4px 16px rgba(15,23,42,.08);
-  max-height: 90vh;
+  background: #fff; border-radius: 16px;
+  width: 100%; max-width: 560px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.18);
   display: flex; flex-direction: column;
-  overflow: hidden;
+  max-height: 90vh; overflow: hidden;
 }
 
-/* ── Header ────────────────────────────────────────────────────── */
+/* ── Header ─────────────────────────────────────────────────────────────────── */
 .signer-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 20px 20px 16px;
-  border-bottom: 1px solid #f1f5f9;
-  background: linear-gradient(135deg, #f8faff 0%, #f0f4ff 100%);
-  border-radius: 16px 16px 0 0;
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 20px 20px 16px; border-bottom: 1px solid #f1f5f9;
 }
 .header-icon-wrap {
-  width: 38px; height: 38px;
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
-  border-radius: 10px;
+  width: 40px; height: 40px; border-radius: 10px;
+  background: linear-gradient(135deg,#6366f1,#8b5cf6);
   display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 16px;
-  flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(99,102,241,.35);
+  color: #fff; font-size: 17px; flex-shrink: 0;
 }
-.header-title {
-  font-size: 15px; font-weight: 700;
-  color: #0f172a; margin: 0 0 2px;
-}
-.header-sub {
-  font-size: 12px; color: #64748b; margin: 0;
-}
-.header-sub strong { color: #3b82f6; }
-.close-btn {
-  margin-left: auto; background: none; border: none;
-  width: 30px; height: 30px;
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  color: #94a3b8; font-size: 14px;
-  cursor: pointer; transition: all .15s;
-  flex-shrink: 0;
-}
+.header-title { font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 2px; }
+.header-sub   { font-size: 12px; color: #64748b; margin: 0; }
+.finalized-sub { color: #0f766e; font-weight: 500; }
+.close-btn { margin-left: auto; border: none; background: none; color: #94a3b8; font-size: 16px; cursor: pointer; padding: 4px; border-radius: 6px; }
 .close-btn:hover { background: #f1f5f9; color: #475569; }
 
-/* ── Body ──────────────────────────────────────────────────────── */
-.signer-body {
-  flex: 1; overflow-y: auto;
-  padding: 0;
-}
+/* ── Body ────────────────────────────────────────────────────────────────────── */
+.signer-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
 
-.section-label {
-  font-size: 10.5px; font-weight: 700;
-  letter-spacing: .6px; text-transform: uppercase;
-  color: #94a3b8; margin-bottom: 10px;
-}
+.loading-state { display: flex; align-items: center; color: #64748b; padding: 24px 0; font-size: 14px; }
 
-/* ── Slot Section ──────────────────────────────────────────────── */
-.slot-section { padding: 16px 20px 12px; }
+/* ── Section label ─────────────────────────────────────────────────────────── */
+.section-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 10px; display: flex; align-items: center; }
 
-.slots-list { display: flex; flex-direction: column; gap: 6px; }
+/* ── Slot cards ─────────────────────────────────────────────────────────────── */
+.slots-list { display: flex; flex-direction: column; gap: 8px; }
 
 .slot-card {
-  display: flex; align-items: center;
-  gap: 10px;
-  border-radius: 10px;
-  border: 1.5px solid #e2e8f0;
-  padding: 10px 12px;
-  background: #fafafa;
-  transition: all .2s;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 12px;
+  border: 1.5px solid #e2e8f0; transition: all .2s;
 }
+.slot-filled { border-color: transparent; }
+.slot-color-0.slot-filled { background: #eff6ff; border-color: #bfdbfe; }
+.slot-color-1.slot-filled { background: #faf5ff; border-color: #e9d5ff; }
+.slot-color-2.slot-filled { background: #f0fdf4; border-color: #bbf7d0; }
 
-/* Slot colors */
-.slot-0 { border-color: #bfdbfe; background: #eff6ff; }
-.slot-1 { border-color: #c4b5fd; background: #f5f3ff; }
-.slot-2 { border-color: #a7f3d0; background: #f0fdf4; }
-
-.slot-number {
-  width: 22px; height: 22px;
-  border-radius: 50%;
-  background: #e2e8f0;
-  color: #64748b;
-  font-size: 11px; font-weight: 700;
+.slot-num {
+  width: 28px; height: 28px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
+  font-size: 13px; font-weight: 700; flex-shrink: 0;
 }
-.slot-0 .slot-number { background: #3b82f6; color: #fff; }
-.slot-1 .slot-number { background: #8b5cf6; color: #fff; }
-.slot-2 .slot-number { background: #10b981; color: #fff; }
+.num-0 { background: #2563eb; color: #fff; }
+.num-1 { background: #7c3aed; color: #fff; }
+.num-2 { background: #059669; color: #fff; }
 
-.slot-info, .slot-empty {
-  display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
-}
+.slot-content { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.slot-empty-content { flex-wrap: wrap; }
 
 .slot-avatar {
-  width: 32px; height: 32px;
-  border-radius: 8px;
+  width: 36px; height: 36px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 700; color: #fff;
-  flex-shrink: 0;
+  font-size: 14px; font-weight: 700; flex-shrink: 0;
 }
-.avatar-0 { background: linear-gradient(135deg, #3b82f6, #6366f1); }
-.avatar-1 { background: linear-gradient(135deg, #8b5cf6, #a855f7); }
-.avatar-2 { background: linear-gradient(135deg, #10b981, #059669); }
-.avatar-default { background: linear-gradient(135deg, #94a3b8, #64748b); }
-
-.slot-avatar-empty {
-  width: 32px; height: 32px;
-  border-radius: 8px;
-  background: #e2e8f0;
-  display: flex; align-items: center; justify-content: center;
-  color: #94a3b8; font-size: 14px;
-  flex-shrink: 0;
-}
+.avatar-0 { background: #dbeafe; color: #1d4ed8; }
+.avatar-1 { background: #ede9fe; color: #6d28d9; }
+.avatar-2 { background: #d1fae5; color: #065f46; }
+.avatar-empty { background: #f1f5f9; color: #94a3b8; font-size: 16px; }
 
 .slot-text { flex: 1; min-width: 0; }
-.slot-label-sm { font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .4px; }
-.slot-name { font-size: 13px; font-weight: 600; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slot-label-sm { font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .6px; }
+.slot-name { font-size: 13px; font-weight: 600; color: #0f172a; }
 .slot-role { font-size: 11px; color: #64748b; }
-.slot-empty-hint { font-size: 12px; color: #cbd5e1; font-style: italic; }
+.slot-name-empty { font-size: 13px; color: #94a3b8; font-style: italic; }
 
-.slot-actions { display: flex; gap: 2px; flex-shrink: 0; }
-.slot-btn {
-  width: 24px; height: 24px;
-  background: none; border: none;
-  border-radius: 6px;
-  display: flex; align-items: center; justify-content: center;
-  color: #94a3b8; font-size: 11px;
-  cursor: pointer; transition: all .15s;
+.slot-badge-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.slot-badge-done { font-size: 10px; font-weight: 600; color: #059669; background: #d1fae5; border-radius: 99px; padding: 2px 8px; white-space: nowrap; }
+.slot-date { font-size: 10px; color: #94a3b8; }
+
+.btn-add-slot {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 12px; border-radius: 8px;
+  border: 1.5px dashed #6366f1; background: #fff;
+  color: #6366f1; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all .15s; white-space: nowrap; flex-shrink: 0;
 }
-.slot-btn:hover:not(:disabled) { background: #f1f5f9; color: #475569; }
-.slot-btn:disabled { opacity: .3; cursor: not-allowed; }
-.slot-btn-remove:hover:not(:disabled) { background: #fef2f2; color: #ef4444; }
+.btn-add-slot:hover:not(:disabled) { background: #eff0ff; }
+.btn-add-slot:disabled { opacity: .5; cursor: not-allowed; }
 
-/* ── Divider ────────────────────────────────────────────────────── */
-.section-divider { height: 1px; background: #f1f5f9; margin: 0 20px; }
-
-/* ── Users Section ─────────────────────────────────────────────── */
-.users-section { padding: 14px 20px 4px; }
-
-.users-list {
-  border: 1.5px solid #e2e8f0;
-  border-radius: 10px;
-  overflow: hidden;
-  max-height: 220px;
-  overflow-y: auto;
-}
-
-.user-row {
+/* ── Banners ─────────────────────────────────────────────────────────────────── */
+.finalized-banner {
   display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 10px 14px;
-  background: #fff; border: none;
-  border-bottom: 1px solid #f1f5f9;
-  text-align: left; cursor: pointer;
-  transition: all .15s;
+  background: #f0fdf4; border: 1px solid #bbf7d0;
+  border-radius: 10px; padding: 12px 14px;
+  color: #065f46; font-size: 13px; margin-top: 12px;
 }
-.user-row:last-child { border-bottom: none; }
-.user-row:hover:not(.user-disabled):not(.user-selected) { background: #f8faff; }
-
-.user-row.user-selected { cursor: pointer; }
-.user-row.user-slot-0 { background: #eff6ff; border-left: 3px solid #3b82f6; }
-.user-row.user-slot-1 { background: #f5f3ff; border-left: 3px solid #8b5cf6; }
-.user-row.user-slot-2 { background: #f0fdf4; border-left: 3px solid #10b981; }
-.user-row.user-disabled { opacity: .4; cursor: not-allowed; }
-
-.user-avatar {
-  width: 34px; height: 34px;
-  border-radius: 9px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 700; color: #fff;
-  flex-shrink: 0;
+.no-ttd-info {
+  display: flex; align-items: center;
+  background: #eff6ff; border: 1px solid #bfdbfe;
+  border-radius: 10px; padding: 10px 14px;
+  color: #1e40af; font-size: 12px; margin-top: 12px;
 }
 
-.user-info { flex: 1; min-width: 0; }
-.user-name { font-size: 13px; font-weight: 600; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.user-meta { font-size: 11px; color: #64748b; }
-.user-warehouse { color: #94a3b8; }
-
-.user-badge-wrap { flex-shrink: 0; }
-.slot-badge {
-  display: inline-flex; align-items: center;
-  font-size: 10px; font-weight: 600;
-  padding: 2px 8px; border-radius: 99px;
-}
-.badge-slot-0 { background: #dbeafe; color: #1d4ed8; }
-.badge-slot-1 { background: #ede9fe; color: #6d28d9; }
-.badge-slot-2 { background: #d1fae5; color: #065f46; }
-
-.add-hint {
-  width: 24px; height: 24px;
-  border-radius: 6px;
-  background: #f1f5f9;
-  display: flex; align-items: center; justify-content: center;
-  color: #94a3b8; font-size: 16px;
-  transition: all .15s;
-}
-.user-row:hover .add-hint { background: #dbeafe; color: #3b82f6; }
-
-/* ── Empty State ───────────────────────────────────────────────── */
-.empty-state {
-  text-align: center;
-  padding: 24px 20px;
-  border: 1.5px dashed #e2e8f0;
-  border-radius: 10px;
-  background: #fafafa;
-}
-.empty-icon { font-size: 28px; color: #f59e0b; margin-bottom: 8px; }
-.empty-text { font-size: 13px; font-weight: 600; color: #475569; }
-.empty-sub { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-.empty-sub strong { color: #3b82f6; }
-
-/* ── Footer ────────────────────────────────────────────────────── */
+/* ── Footer ─────────────────────────────────────────────────────────────────── */
 .signer-footer {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 20px;
-  border-top: 1px solid #f1f5f9;
-  background: #fafafa;
-  border-radius: 0 0 16px 16px;
+  padding: 14px 20px; border-top: 1px solid #f1f5f9;
+  gap: 8px;
 }
-.progress-info { display: flex; align-items: center; gap: 8px; }
-.progress-dots { display: flex; gap: 4px; }
-.progress-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: #e2e8f0; transition: all .2s;
-}
-.dot-color-0 { background: #3b82f6; }
-.dot-color-1 { background: #8b5cf6; }
-.dot-color-2 { background: #10b981; }
-.progress-text { font-size: 12px; color: #64748b; font-weight: 500; }
+.footer-right { display: flex; align-items: center; gap: 8px; }
+.slot-count { font-size: 12px; color: #94a3b8; font-weight: 500; }
 
-.footer-actions { display: flex; gap: 8px; }
 .btn-cancel {
-  padding: 8px 16px;
-  border: 1.5px solid #e2e8f0;
-  background: #fff; border-radius: 8px;
-  font-size: 13px; font-weight: 500; color: #64748b;
+  padding: 7px 16px; border-radius: 8px;
+  border: 1.5px solid #e2e8f0; background: #fff;
+  color: #475569; font-size: 13px; font-weight: 600;
   cursor: pointer; transition: all .15s;
 }
-.btn-cancel:hover { background: #f8faff; border-color: #cbd5e1; color: #475569; }
+.btn-cancel:hover:not(:disabled) { background: #f8fafc; }
 
-.btn-confirm {
-  padding: 8px 18px;
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  border: none; border-radius: 8px;
-  font-size: 13px; font-weight: 600; color: #fff;
-  cursor: pointer; transition: all .15s;
-  box-shadow: 0 2px 8px rgba(239,68,68,.35);
+.btn-finalize {
   display: flex; align-items: center;
+  padding: 7px 16px; border-radius: 8px;
+  border: none; background: #f59e0b; color: #fff;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all .15s;
 }
-.btn-confirm:hover {
-  background: linear-gradient(135deg, #dc2626, #b91c1c);
-  box-shadow: 0 4px 14px rgba(239,68,68,.45);
-  transform: translateY(-1px);
-}
-.btn-confirm:active { transform: translateY(0); }
+.btn-finalize:hover:not(:disabled) { background: #d97706; }
+.btn-finalize:disabled { opacity: .5; cursor: not-allowed; }
 
-/* ── Transitions ───────────────────────────────────────────────── */
-.fade-modal-enter-active, .fade-modal-leave-active { transition: opacity .2s ease; }
+.btn-print {
+  display: flex; align-items: center;
+  padding: 7px 18px; border-radius: 8px;
+  border: none; background: #dc2626; color: #fff;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+}
+.btn-print:hover:not(:disabled) { background: #b91c1c; }
+.btn-print:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Transitions ─────────────────────────────────────────────────────────────── */
+.fade-modal-enter-active, .fade-modal-leave-active { transition: all .2s ease; }
 .fade-modal-enter-from, .fade-modal-leave-to { opacity: 0; }
-
-.slot-anim-enter-active { transition: all .25s ease; }
-.slot-anim-leave-active { transition: all .2s ease; }
-.slot-anim-enter-from { opacity: 0; transform: translateY(-6px); }
-.slot-anim-leave-to   { opacity: 0; transform: translateX(10px); }
-
-/* ── Scrollbar ─────────────────────────────────────────────────── */
-.users-list::-webkit-scrollbar { width: 4px; }
-.users-list::-webkit-scrollbar-track { background: transparent; }
-.users-list::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 99px; }
-.signer-body::-webkit-scrollbar { width: 4px; }
-.signer-body::-webkit-scrollbar-track { background: transparent; }
-.signer-body::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 99px; }
-
-button:disabled { cursor: not-allowed; }
+.fade-modal-enter-from .signer-box, .fade-modal-leave-to .signer-box { transform: scale(.96) translateY(8px); }
 </style>

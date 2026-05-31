@@ -750,8 +750,14 @@
   <!-- Modal Pilih Penandatangan -->
   <SignerPickerModal
     v-model="showSignerModal"
-    :signers="signers"
-    @confirm="printPDF"
+    :slots="slots"
+    :is-finalized="isFinalized"
+    :finalized-at="finalizedAt"
+    :loading="signerLoading"
+    :action-loading="signerActionLoading"
+    @add-slot="handleAddSlot"
+    @finalize="handleFinalize"
+    @print="handlePrint"
   />
 </template>
 <script setup>
@@ -771,7 +777,11 @@ const { listenPurchaseOrder, stopPurchaseOrder } = useRealtime()
 const can = (p) => auth.hasPermission(p)
 
 // ── Signer Picker ───────────────────────────────────────────────────
-const { showSignerModal, signers, openSignerPicker } = useSignerPicker()
+const {
+  showSignerModal, slots, isFinalized, finalizedAt,
+  loading: signerLoading, actionLoading: signerActionLoading,
+  openSignerPicker, addMySlot, finalizeDoc, closeModal,
+} = useSignerPicker()
 let pendingPrintPO = null
 
 // ── State ────────────────────────────────────────────────────────────
@@ -1012,31 +1022,24 @@ async function doSend(po) {
 
 // ── Print PDF ────────────────────────────────────────────────────────
 async function printPODirect(po) {
-  pendingPrintPO = po
-  await openSignerPicker()
-}
-
-async function printPDF(signerIds) {
-  const po = pendingPrintPO
-  if (!po) return
-  showSignerModal.value = false
-  pendingPrintPO = null
-
-  const resolvedSigners = (signerIds || []).map(id => {
-    const found = signers.value.find(s => s.id === id)
-    return found
-      ? { label: found.name, name: found.name, position: found.position || '', signature: found.signature_url || null }
-      : { label: '', name: '', position: '', signature: null }
-  })
-
-  // Fetch full detail for print
-  let fullPO = po
+  // Fetch full PO detail agar po.items tersedia (data list hanya punya items_count)
   try {
     const res = await axios.get(`/purchase-orders/${po.id}`)
-    fullPO = res.data.data ?? res.data
-  } catch {}
+    pendingPrintPO = res.data.data ?? res.data
+  } catch {
+    pendingPrintPO = po
+  }
+  openSignerPicker('purchase_order', pendingPrintPO?.id)
+}
 
-  const html = buildPOHtml(fullPO, resolvedSigners)
+function printPDF(slots = []) {
+  // Konversi slots ke resolvedSigners (filter null)
+  const resolvedSigners = slots.filter(s => s !== null)
+  const po = pendingPrintPO
+  if (!po) return
+  pendingPrintPO = null
+
+  const html = buildPOHtml(po, resolvedSigners)
   const win = window.open('', '_blank')
   win.document.write(html)
   win.document.close()
@@ -1253,6 +1256,8 @@ async function goToStep2() {
             item_id: item.item_id || item.item?.id,
             part_number: item.part_number || item.item?.part_number || '',
             nama_barang: item.nama_barang || item.item?.name || '',
+            kode_unit: item.kode_unit || '',
+            tipe_unit: item.tipe_unit || '',
             satuan: item.satuan || item.unit || '',
             qty_pm: parseFloat(item.qty),
             qty_already_ordered: qtyAlready,
@@ -1285,6 +1290,9 @@ async function saveCreatePO() {
   }
   saving.value = true
   try {
+    // Ambil warehouse_id dari PM yang dipilih (sudah divalidasi 1 gudang)
+    const warehouseId = selectedPMs.value[0]?.warehouse?.id || null
+
     const payload = {
       vendor_name: createForm.value.vendor_name,
       vendor_contact: createForm.value.vendor_contact,
@@ -1294,12 +1302,16 @@ async function saveCreatePO() {
       payment_term_days: createForm.value.payment_type === 'kredit' ? createForm.value.payment_term_days : null,
       diskon_persen: createForm.value.diskon_persen || 0,
       ppn_percent: createForm.value.ppn_percent || 0,
+      warehouse_id: warehouseId,
       permintaan_material_ids: selectedPMIds.value,
       items: selectedItems.map(i => ({
-        pm_item_id: i.pm_item_id,
+        permintaan_material_item_id: i.pm_item_id,
         item_id: i.item_id,
         nama_barang: i.nama_barang,
+        kode_unit: i.kode_unit || null,
+        tipe_unit: i.tipe_unit || null,
         qty: parseFloat(i.qty),
+        qty_pm: parseFloat(i.qty_pm || i.qty),
         satuan: i.satuan,
         harga_satuan: parseFloat(i.harga_satuan) || 0,
       })),
@@ -1370,4 +1382,23 @@ function onPartNumberUpdated(updatedItem) {
   const idx = selectedPO.value.items?.findIndex(i => i.id === updatedItem.id)
   if (idx >= 0) selectedPO.value.items[idx] = { ...selectedPO.value.items[idx], ...updatedItem }
 }
+
+// ── SignerPicker handlers ──────────────────────────────────────────────────
+async function handleAddSlot(slot) {
+  const { success, message } = await addMySlot(slot)
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+async function handleFinalize() {
+  const { success, message } = await finalizeDoc()
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+function handlePrint() {
+  closeModal()
+  printPDF(slots.value)
+}
+
 </script>

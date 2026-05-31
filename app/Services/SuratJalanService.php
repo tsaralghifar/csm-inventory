@@ -122,15 +122,25 @@ class SuratJalanService
             // Update stok jika item terdaftar di master item dan masuk_stok tidak di-set false
             $masukStok = $itemData['masuk_stok'] ?? true;
             if ($poItem->item_id && $masukStok) {
-                $this->addStock($poItem, $po, $qtyReceived, $sj, $userId);
+                // Jika PO ini pengganti Transfer Part Darurat,
+                // stok masuk ke warehouse tujuan transfer (bukan warehouse PO)
+                $targetWarehouseId = $po->warehouse_id;
+                if ($po->linked_mr_transfer_id) {
+                    $tp = \App\Models\MaterialRequest::find($po->linked_mr_transfer_id);
+                    if ($tp && $tp->to_warehouse_id) {
+                        $targetWarehouseId = $tp->to_warehouse_id;
+                    }
+                }
+                $this->addStock($poItem, $po, $qtyReceived, $sj, $userId, $targetWarehouseId);
             }
         }
     }
 
-    private function addStock(PurchaseOrderItem $poItem, PurchaseOrder $po, float $qty, SuratJalan $sj, int $userId): void
+    private function addStock(PurchaseOrderItem $poItem, PurchaseOrder $po, float $qty, SuratJalan $sj, int $userId, ?int $warehouseId = null): void
     {
+        $warehouseId ??= $po->warehouse_id;
         $stock = ItemStock::firstOrCreate(
-            ['item_id' => $poItem->item_id, 'warehouse_id' => $po->warehouse_id],
+            ['item_id' => $poItem->item_id, 'warehouse_id' => $warehouseId],
             ['qty' => 0, 'qty_reserved' => 0, 'avg_price' => 0]
         );
 
@@ -150,7 +160,7 @@ class SuratJalanService
         // ── Buat FIFO Layer ───────────────────────────────────────────────────
         StockLayer::create([
             'item_id'       => $poItem->item_id,
-            'warehouse_id'  => $po->warehouse_id,
+            'warehouse_id'  => $warehouseId,
             'qty_awal'      => $qty,
             'qty_sisa'      => $qty,
             'harga_satuan'  => $harga,
@@ -163,7 +173,7 @@ class SuratJalanService
         // ── Price Intelligence — analisis perubahan harga & kirim notif ───────
         app(\App\Services\PriceAlertService::class)->analyzeAndNotify(
             itemId:          $poItem->item_id,
-            warehouseId:     $po->warehouse_id,
+            warehouseId:     $warehouseId,
             newPrice:        $harga,
             qtyReceived:     $qty,
             referenceNo:     $po->po_number,
@@ -178,7 +188,7 @@ class SuratJalanService
 
         StockMovement::create([
             'item_id'          => $poItem->item_id,
-            'to_warehouse_id'  => $po->warehouse_id,
+            'to_warehouse_id'  => $warehouseId,
             'type'             => 'in',
             'qty'              => $qty,
             'qty_before'       => $qtyBefore,

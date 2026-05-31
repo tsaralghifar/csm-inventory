@@ -28,6 +28,7 @@ class PermintaanMaterial extends Model
         'rejection_reason',
         'notes',
         'needed_date',
+        'linked_transfer_part_id',
     ];
 
     protected $casts = [
@@ -126,5 +127,11 @@ class PermintaanMaterial extends Model
         $seq = $last ? ((int) substr($last, strlen($prefix)) + 1) : 1;
 
         return sprintf('%s%04d', $prefix, $seq);
+    }
+
+    /** Transfer Part Darurat yang menjadi alasan PM pengganti ini */
+    public function linkedTransferPart()
+    {
+        return $this->belongsTo(\App\Models\MaterialRequest::class, 'linked_transfer_part_id');
     }
 }

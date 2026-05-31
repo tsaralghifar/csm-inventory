@@ -23,10 +23,17 @@ class PermintaanMaterialService
             ->orderBy('created_at', 'desc');
 
         // Filter berdasarkan role
-        if (!$user->isSuperuser() && !$user->isAdminHO()) {
-            if (!$user->hasRole('manager') && !$user->hasRole('chief_mekanik') && !$user->hasRole('purchasing')) {
-                $query->where('warehouse_id', $user->warehouse_id);
-            }
+        // Role dengan akses semua gudang: superuser, admin_ho, logistik_ho, manager, chief_mekanik, purchasing
+        $canSeeAll = $user->isSuperuser()
+            || $user->isAdminHO()
+            || $user->isLogistikHO()
+            || $user->hasRole('manager')
+            || $user->hasRole('chief_mekanik')
+            || $user->hasRole('purchasing');
+
+        if (!$canSeeAll) {
+            // logistik_site dan role lainnya: hanya lihat PM dari gudang sendiri
+            $query->where('warehouse_id', $user->warehouse_id);
         }
 
         if ($request->status) {

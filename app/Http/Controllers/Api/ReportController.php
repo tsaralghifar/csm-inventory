@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\DocumentSigner;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -11,6 +12,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ReportController extends Controller
@@ -36,7 +38,7 @@ class ReportController extends Controller
         ]);
     }
 
-    public function exportPdf(Request $request): Response|BinaryFileResponse
+    public function exportPdf(Request $request): Response|BinaryFileResponse|JsonResponse
     {
         $request->validate([
             'warehouse_id' => 'nullable|exists:warehouses,id',
@@ -55,13 +57,39 @@ class ReportController extends Controller
         $warehouseName = $request->warehouse_name
             ?? ($warehouseId ? Warehouse::find($warehouseId)?->name ?? 'Semua Gudang' : 'Semua Gudang');
 
-        $signers = $this->resolveSigners($request->input('signer_ids', []));
+        // document_id deterministik dari parameter + tanggal
+        $documentId = $this->buildReportDocumentId('stock', $request);
+
+        // Coba load snapshot yang sudah tersimpan
+        $signers = DocumentSigner::loadSnapshot('report_stock', $documentId);
+
+        if ($signers === null) {
+            $signerIds = $request->input('signer_ids', []);
+
+            if (! empty($signerIds)) {
+                [$signers, $errors] = $this->resolveSigners($signerIds);
+
+                if (! empty($errors)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Satu atau lebih penandatangan tidak valid.',
+                        'errors'  => $errors,
+                    ], 422);
+                }
+
+                // Simpan snapshot permanen
+                DocumentSigner::saveSnapshot('report_stock', $documentId, $signers);
+                $signers = DocumentSigner::loadSnapshot('report_stock', $documentId);
+            } else {
+                $signers = [];
+            }
+        }
 
         $pdf = Pdf::loadView('pdf.stock', [
             'data'     => $result['data'],
             'summary'  => $result['summary'],
             'request'  => array_merge($request->all(), ['warehouse_name' => $warehouseName]),
-            'signers'  => $signers,
+            'signers'  => $signers ?? [],
         ])->setPaper('a4', 'landscape');
 
         return $pdf->download('Laporan_Stok_' . now()->format('Ymd') . '.pdf');
@@ -134,7 +162,7 @@ class ReportController extends Controller
         ]);
     }
 
-    public function purchasePdf(Request $request): Response|BinaryFileResponse
+    public function purchasePdf(Request $request): Response|BinaryFileResponse|JsonResponse
     {
         $request->validate([
             'signer_ids'   => 'nullable|array|max:3',
@@ -154,56 +182,127 @@ class ReportController extends Controller
                 ? Supplier::find($request->supplier_id)?->name ?? 'Semua Supplier'
                 : 'Semua Supplier');
 
-        $signers = $this->resolveSigners($request->input('signer_ids', []));
+        $documentId = $this->buildReportDocumentId('purchase', $request);
+
+        $signers = DocumentSigner::loadSnapshot('report_purchase', $documentId);
+
+        if ($signers === null) {
+            $signerIds = $request->input('signer_ids', []);
+
+            if (! empty($signerIds)) {
+                [$signers, $errors] = $this->resolveSigners($signerIds);
+
+                if (! empty($errors)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Satu atau lebih penandatangan tidak valid.',
+                        'errors'  => $errors,
+                    ], 422);
+                }
+
+                DocumentSigner::saveSnapshot('report_purchase', $documentId, $signers);
+                $signers = DocumentSigner::loadSnapshot('report_purchase', $documentId);
+            } else {
+                $signers = [];
+            }
+        }
 
         $pdf = Pdf::loadView('pdf.purchase', [
             'data'     => $result['data'],
             'summary'  => $result['summary'],
             'request'  => array_merge($request->all(), ['supplier_name' => $supplierName]),
-            'signers'  => $signers,
+            'signers'  => $signers ?? [],
         ])->setPaper('a4', 'landscape');
 
         return $pdf->download('Laporan_Pembelian_' . now()->format('Ymd') . '.pdf');
     }
 
-    // ─── Helper ───────────────────────────────────────────────────────────────
+    // ─── Helpers ──────────────────────────────────────────────────────────────
 
     /**
-     * Ambil data user + TTD berdasarkan array signer_ids dari frontend.
-     * Eager load 'roles' untuk hindari N+1 query saat akses $user->roles->first().
+     * Buat document_id deterministik dari parameter laporan.
+     * Laporan dengan parameter sama di hari yang sama → snapshot yang sama.
+     * Hari berbeda → snapshot baru (laporan hari ini ≠ laporan kemarin).
+     */
+    private function buildReportDocumentId(string $type, Request $request): string
+    {
+        $params = [
+            'type'         => $type,
+            'warehouse_id' => $request->warehouse_id,
+            'category_id'  => $request->category_id,
+            'filter'       => $request->filter,
+            'date_from'    => $request->date_from,
+            'date_to'      => $request->date_to,
+            'supplier_id'  => $request->supplier_id,
+            'payment_type' => $request->payment_type,
+            'status'       => $request->status,
+            'date'         => now()->format('Y-m-d'),
+        ];
+
+        ksort($params);
+        return substr(md5(json_encode($params)), 0, 16);
+    }
+
+    /**
+     * Validasi dan resolve signer_ids menjadi array data penandatangan.
+     * Menyertakan 'user_model' untuk keperluan DocumentSigner::saveSnapshot().
      *
-     * Kembalikan array siap pakai untuk blade:
-     * [
-     *   ['label' => 'Dibuat oleh', 'name' => 'Ahmad', 'position' => 'Kepala Gudang', 'signature' => 'data:image/...'],
-     *   ...
-     * ]
+     * Syarat validasi (CELAH 3):
+     *   1. User aktif
+     *   2. Sudah punya TTD
+     *   3. Role minimal manager/logistik_ho/admin_ho/superuser
+     *
+     * @return array  [$signers, $errors]
      */
     private function resolveSigners(array $signerIds): array
     {
-        if (empty($signerIds)) return [];
+        if (empty($signerIds)) return [[], []];
 
         $labels = ['Dibuat oleh', 'Diperiksa oleh', 'Disetujui oleh'];
 
-        // Eager load 'roles' agar tidak N+1 di map bawah
         $users = User::with('roles')
             ->whereIn('id', $signerIds)
             ->get()
             ->keyBy('id');
 
         $signers = [];
+        $errors  = [];
 
         foreach (array_slice($signerIds, 0, 3) as $i => $userId) {
             $user = $users[$userId] ?? null;
-            if (! $user) continue;
+
+            if (! $user) {
+                $errors[] = "User ID {$userId} tidak ditemukan.";
+                continue;
+            }
+
+            if (! $user->is_active) {
+                $errors[] = "User \"{$user->name}\" tidak aktif.";
+                continue;
+            }
+
+            if (! $user->hasSignature()) {
+                $errors[] = "User \"{$user->name}\" belum memiliki tanda tangan.";
+                continue;
+            }
+
+            if (! $user->canSign()) {
+                $roleName = $user->roles->first()?->name ?? 'tanpa role';
+                $errors[] = "User \"{$user->name}\" (role: {$roleName}) tidak berwenang menandatangani.";
+                continue;
+            }
 
             $signers[] = [
-                'label'     => $labels[$i] ?? 'Penandatangan ' . ($i + 1),
-                'name'      => $user->name,
-                'position'  => $user->position ?? $user->roles->first()?->name ?? '—',
-                'signature' => $user->signatureDataUri(), // null jika belum upload
+                'label'      => $labels[$i] ?? 'Penandatangan ' . ($i + 1),
+                'name'       => $user->name,
+                'position'   => $user->position ?? $user->roles->first()?->name ?? '—',
+                'role'       => $user->roles->first()?->name,
+                'user_id'    => $user->id,
+                'user_model' => $user,   // untuk copy file TTD ke snapshot
+                'signature'  => $user->signatureDataUri(),
             ];
         }
 
-        return $signers;
+        return [$signers, $errors];
     }
 }

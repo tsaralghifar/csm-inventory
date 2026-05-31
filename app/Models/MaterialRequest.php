@@ -14,6 +14,10 @@ class MaterialRequest extends Model
         'atasan_approved_by', 'atasan_approved_at',
         'submitted_at', 'approved_at', 'dispatched_at', 'received_at',
         'notes', 'rejection_reason', 'needed_date',
+        // Transfer Part Darurat
+        'unit_from_kode', 'unit_from_tipe',
+        'unit_to_kode',   'unit_to_tipe',
+        'alasan_urgent',  'linked_po_id', 'linked_pm_id',
     ];
 
     protected $casts = [
@@ -90,6 +94,17 @@ class MaterialRequest extends Model
     public function stockMovements()
     {
         return $this->morphMany(StockMovement::class, 'moveable');
+    }
+
+    public function linkedPo()
+    {
+        return $this->belongsTo(PurchaseOrder::class, 'linked_po_id');
+    }
+
+    /** PM pengganti yang dibuat untuk mengganti part yang ditransfer */
+    public function linkedPm()
+    {
+        return $this->belongsTo(\App\Models\PermintaanMaterial::class, 'linked_pm_id');
     }
 
     public static function generateNumber(): string

@@ -25,7 +25,7 @@ class StokOpnameController extends Controller
             ->withCount('items')
             ->orderBy('created_at', 'desc');
 
-        if (!$user->isSuperuser() && !$user->isAdminHO()) {
+        if (!$user->isSuperuser() && !$user->isAdminHO() && !$user->isLogistikHO()) {
             $query->where('warehouse_id', $user->warehouse_id);
         }
 
@@ -119,7 +119,7 @@ class StokOpnameController extends Controller
     // POST /stok-opname/{id}/setujui
     public function setujui(StokOpname $stokOpname, Request $request): JsonResponse
     {
-        if (!$request->user()->isSuperuser() && !$request->user()->isAdminHO()) {
+        if (!$request->user()->isSuperuser() && !$request->user()->isAdminHO() && !$request->user()->isLogistikHO()) {
             return response()->json(['success' => false, 'message' => 'Tidak berhak menyetujui dokumen ini'], 403);
         }
 
@@ -137,7 +137,7 @@ class StokOpnameController extends Controller
             return response()->json(['success' => false, 'message' => 'Dokumen tidak dalam status menunggu approval'], 422);
         }
 
-        if (!$request->user()->isSuperuser() && !$request->user()->isAdminHO()) {
+        if (!$request->user()->isSuperuser() && !$request->user()->isAdminHO() && !$request->user()->isLogistikHO()) {
             return response()->json(['success' => false, 'message' => 'Tidak berhak menolak dokumen ini'], 403);
         }
 

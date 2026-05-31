@@ -509,10 +509,16 @@
 
     <!-- Modal Pilih Penandatangan -->
     <SignerPickerModal
-      v-model="showSignerModal"
-      :signers="signers"
-      @confirm="printPDF"
-    />
+    v-model="showSignerModal"
+    :slots="slots"
+    :is-finalized="isFinalized"
+    :finalized-at="finalizedAt"
+    :loading="signerLoading"
+    :action-loading="signerActionLoading"
+    @add-slot="handleAddSlot"
+    @finalize="handleFinalize"
+    @print="handlePrint"
+  />
 
     <!-- ===== Modal Tolak ===== -->
     <div class="modal fade" id="modalRejectDetail" tabindex="-1">
@@ -1186,7 +1192,11 @@ const saving = ref(false)
 const rejectReason = ref('')
 
 // ── Tanda Tangan ──────────────────────────────────────────────────────
-const { showSignerModal, signers, openSignerPicker } = useSignerPicker()
+const {
+  showSignerModal, slots, isFinalized, finalizedAt,
+  loading: signerLoading, actionLoading: signerActionLoading,
+  openSignerPicker, addMySlot, finalizeDoc, closeModal,
+} = useSignerPicker()
 
 const bonForm = ref({ warehouse_id: '', issue_date: '', received_by: '', notes: '' })
 const poForm = ref({ vendor_name: '', vendor_contact: '', warehouse_id: '', expected_date: '', notes: '', diskon_persen: 0, ppn_percent: 0, items: [], payment_type: 'cash', payment_term_days: 30 })
@@ -1587,13 +1597,14 @@ onMounted(async () => {
   listenPM(() => loadPM())
 
   // Load warehouses & suppliers paralel, error tidak akan block tampilan PM
+  // Suppliers hanya dimuat jika user punya akses view-accounting
   try {
-    const [resW, resS] = await Promise.all([
-      axios.get('/warehouses'),
-      axios.get('/suppliers'),
-    ])
+    const requests = [axios.get('/warehouses')]
+    if (can('view-accounting')) requests.push(axios.get('/suppliers'))
+
+    const [resW, resS] = await Promise.all(requests)
     warehouses.value = resW.data.data
-    suppliers.value = resS.data.data || []
+    suppliers.value = resS?.data.data || []
   } catch (e) {
     console.warn('Gagal load warehouses/suppliers:', e)
   }
@@ -1982,29 +1993,13 @@ function buildHTML(data, resolvedSigners = []) {
 
 // Langkah 1: buka modal pilih penandatangan
 async function onClickPrint() {
-  await openSignerPicker()
+  openSignerPicker('permintaan_material', pm?.id)
 }
 
 // Langkah 2: user konfirmasi signer → fetch TTD → print
-async function printPDF(signerIds = []) {
-  // Resolusi signer + fetch TTD
-  let resolvedSigners = []
-  if (signerIds.length) {
-    const LABELS = ['Dibuat oleh', 'Diperiksa oleh', 'Disetujui oleh']
-    resolvedSigners = signerIds.slice(0, 3).map((id, i) => {
-      const u = signers.value.find(s => s.id === id)
-      return u ? { label: LABELS[i] ?? `Penandatangan ${i+1}`, name: u.name, position: u.position || u.role || '', signature: null, id: u.id } : null
-    }).filter(Boolean)
-
-    // Fetch base64 TTD tiap signer
-    await Promise.allSettled(
-      resolvedSigners.map(s =>
-        axios.get(`/profile-signature/${s.id}`)
-          .then(r => { s.signature = r.data.data?.signature_preview ?? null })
-          .catch(() => {})
-      )
-    )
-  }
+async function printPDF(slots = []) {
+  // Konversi slots ke resolvedSigners (filter null)
+  const resolvedSigners = slots.filter(s => s !== null)
 
   const html = buildHTML(pm.value, resolvedSigners)
   const win  = window.open('', '_blank', 'width=900,height=700')
@@ -2036,6 +2031,25 @@ function exportExcel() {
   })
   .catch(() => toast.error('Gagal mengunduh Excel'))
 }
+
+// ── SignerPicker handlers ──────────────────────────────────────────────────
+async function handleAddSlot(slot) {
+  const { success, message } = await addMySlot(slot)
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+async function handleFinalize() {
+  const { success, message } = await finalizeDoc()
+  if (!success) toast.error(message)
+  else toast.success(message)
+}
+
+function handlePrint() {
+  closeModal()
+  printPDF(slots.value)
+}
+
 </script>
 
 <style scoped>

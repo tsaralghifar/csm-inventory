@@ -191,6 +191,19 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
     Route::post('/material-requests/{mr}/dispatch',            [MaterialRequestController::class, 'dispatchMR']);
 
     // Transfer Barang
+    // ── Transfer Part Darurat ────────────────────────────────────────────────
+    Route::get('/transfer-part',                              [\App\Http\Controllers\Api\TransferPartController::class, 'index']);
+    Route::post('/transfer-part',                             [\App\Http\Controllers\Api\TransferPartController::class, 'store']);
+    Route::get('/transfer-part/unlinked',                     [\App\Http\Controllers\Api\TransferPartController::class, 'unlinked']);
+    Route::get('/transfer-part/unlinked-pm',                  [\App\Http\Controllers\Api\TransferPartController::class, 'unlinkedPm']);
+    Route::get('/transfer-part/{mr}',                         [\App\Http\Controllers\Api\TransferPartController::class, 'show']);
+    Route::post('/transfer-part/{mr}/submit',                 [\App\Http\Controllers\Api\TransferPartController::class, 'submit']);
+    Route::post('/transfer-part/{mr}/approve-chief',          [\App\Http\Controllers\Api\TransferPartController::class, 'approveChief']);
+    Route::post('/transfer-part/{mr}/approve-manager',        [\App\Http\Controllers\Api\TransferPartController::class, 'approveManager']);
+    Route::post('/transfer-part/{mr}/link-po',                [\App\Http\Controllers\Api\TransferPartController::class, 'linkPo']);
+    Route::post('/transfer-part/{mr}/reject',                 [\App\Http\Controllers\Api\TransferPartController::class, 'reject']);
+    Route::delete('/transfer-part/{mr}',                      [\App\Http\Controllers\Api\TransferPartController::class, 'destroy']);
+
     Route::get('/transfer-barang',                             [\App\Http\Controllers\Api\TransferBarangController::class, 'index']);
     Route::post('/transfer-barang',                            [\App\Http\Controllers\Api\TransferBarangController::class, 'store']);
     Route::get('/transfer-barang/{mr}',                        [\App\Http\Controllers\Api\TransferBarangController::class, 'show']);
@@ -464,8 +477,8 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
     Route::get('/profile',            [UserController::class, 'profile']);
     Route::post('/users/signature',   [UserController::class, 'uploadSignature']);
     Route::delete('/users/signature', [UserController::class, 'deleteSignature']);
-    Route::get('/users/signable',     [UserController::class, 'signableUsers']);
-    Route::get('/profile-signature/{user}', [UserController::class, 'getSignature']); // fetch TTD user untuk embed di print HTML
+    Route::get("/users/signable",     [UserController::class, "signableUsers"]); // CELAH 1: difilter hirarki role peminta
+    Route::get("/profile-signature/{user}", [UserController::class, "getSignature"]); // CELAH 2: akses dibatasi ke pemilik, superuser, admin_ho saja (lihat getSignature())
 
     // Admin: Users & Roles
     Route::middleware('role:superuser')->group(function () {
@@ -1108,4 +1121,10 @@ Route::middleware(['auth:sanctum', 'api.limit:standard', 'log.activity'])->group
         Route::get('/settings',              [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'getSettings']);
         Route::put('/settings',              [\App\Http\Controllers\Api\PriceIntelligenceController::class, 'updateSettings']);
     });
+
+    // ── Document Signers (TTD bertahap + finalisasi) ─────────────────────────
+    Route::get( '/document-signers/{type}/{id}',          [\App\Http\Controllers\Api\DocumentSignerController::class, 'show']);
+    Route::post('/document-signers/{type}/{id}/slot',     [\App\Http\Controllers\Api\DocumentSignerController::class, 'addSlot']);
+    Route::post('/document-signers/{type}/{id}/finalize', [\App\Http\Controllers\Api\DocumentSignerController::class, 'finalize']);
+
 });
